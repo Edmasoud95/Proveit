@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
+import { Sparkle } from '../ui/Sparkle';
 import { useToast } from '../ui/Toast';
 import { api } from '../../services/api';
 
@@ -137,7 +138,7 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
       </div>
 
       <Button type="submit" loading={loading} disabled={description.trim().length < 10}>
-        {loading ? 'Scaffolding…' : 'Scaffold POC'}
+        <Sparkle /> {loading ? 'Scaffolding…' : 'Scaffold POC'}
       </Button>
     </form>
   );

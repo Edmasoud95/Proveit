@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button } from '../ui/Button';
+import { Sparkle } from '../ui/Sparkle';
 
 interface GenerateEvalsButtonProps {
   onGenerate: (count: number) => Promise<void>;
@@ -17,7 +18,7 @@ export function GenerateEvalsButton({ onGenerate }: GenerateEvalsButtonProps) {
   return (
     <div className="flex items-center gap-2">
       <Button size="sm" onClick={handleGenerate} loading={loading}>
-        Generate evals
+        <Sparkle /> Generate evals
       </Button>
       <div className="flex items-center gap-1.5">
         <span className="text-xs text-muted">Count:</span>

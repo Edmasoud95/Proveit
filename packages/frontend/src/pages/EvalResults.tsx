@@ -68,7 +68,7 @@ export function EvalResults() {
       setLiveResults((prev) =>
         prev.map((r) =>
           r.caseId === data.caseId
-            ? { ...r, status: data.status, score: data.score, reasoning: data.reasoning, latencyMs: data.latencyMs }
+            ? { ...r, status: data.status as LiveResult['status'], score: data.score, reasoning: data.reasoning, latencyMs: data.latencyMs }
             : r,
         ),
       );
@@ -175,9 +175,9 @@ export function EvalResults() {
                     {new Date(run.startedAt).toLocaleString()}
                   </span>
                 </div>
-                {selectedRunId === run.id && runDetail && (
+                {selectedRunId === run.id && !!runDetail && (
                   <div className="mt-4 flex flex-col gap-2">
-                    {(runDetail as { results: LiveResult[] }).results.map((r) => (
+                    {((runDetail as { results: LiveResult[] }).results ?? []).map((r) => (
                       <EvalResultCard
                         key={r.caseId}
                         caseId={r.caseId}

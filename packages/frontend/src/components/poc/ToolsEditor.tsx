@@ -4,6 +4,11 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Card } from '../ui/Card';
 
+function isValidJson(value: string): boolean {
+  if (!value.trim()) return true;
+  try { JSON.parse(value); return true; } catch { return false; }
+}
+
 interface ToolsEditorProps {
   tools: ToolDefinition[];
   onSave: (tools: ToolDefinition[]) => Promise<void>;
@@ -13,6 +18,7 @@ export function ToolsEditor({ tools, onSave }: ToolsEditorProps) {
   const [draft, setDraft] = useState(tools);
   const [saving, setSaving] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const hasJsonError = draft.some((t) => t.mockResponse !== undefined && !isValidJson(t.mockResponse));
 
   async function handleSave() {
     setSaving(true);
@@ -20,7 +26,18 @@ export function ToolsEditor({ tools, onSave }: ToolsEditorProps) {
   }
 
   function updateTool(idx: number, field: keyof ToolDefinition, value: string) {
-    setDraft((prev) => prev.map((t, i) => i === idx ? { ...t, [field]: value } : t));
+    setDraft((prev) =>
+      prev.map((t, i) => {
+        if (i !== idx) return t;
+        if (field === 'parameters') {
+          try { return { ...t, parameters: JSON.parse(value) }; } catch { return t; }
+        }
+        if (field === 'mockResponse') {
+          return { ...t, mockResponse: value || undefined };
+        }
+        return { ...t, [field]: value };
+      }),
+    );
   }
 
   function addTool() {
@@ -48,7 +65,13 @@ export function ToolsEditor({ tools, onSave }: ToolsEditorProps) {
             className="flex items-center justify-between cursor-pointer"
             onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
           >
-            <span className="font-mono text-sm text-accent">{tool.name}</span>
+            <div className="flex items-center gap-2">
+              <span
+                title={tool.mockResponse ? 'Stub configured' : 'No stub'}
+                className={`w-2 h-2 rounded-full shrink-0 ${tool.mockResponse ? 'bg-green-500' : 'bg-gray-600'}`}
+              />
+              <span className="font-mono text-sm text-accent">{tool.name}</span>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={(e) => { e.stopPropagation(); removeTool(idx); }}
@@ -80,16 +103,32 @@ export function ToolsEditor({ tools, onSave }: ToolsEditorProps) {
                 <label className="text-sm text-gray-300 font-medium">Parameters (JSON schema)</label>
                 <textarea
                   value={JSON.stringify(tool.parameters, null, 2)}
-                  onChange={(e) => {
-                    try {
-                      const parsed = JSON.parse(e.target.value);
-                      updateTool(idx, 'parameters', parsed);
-                    } catch { /* ignore invalid JSON while typing */ }
-                  }}
+                  onChange={(e) => updateTool(idx, 'parameters', e.target.value)}
                   rows={6}
                   className="w-full px-3 py-2 rounded-lg bg-surface-overlay border border-border text-gray-100 text-xs font-mono
                     focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent resize-y"
                 />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm text-gray-300 font-medium flex items-center gap-2">
+                  Mock response
+                  <span className="text-xs text-muted font-normal">— returned to agent on tool call</span>
+                </label>
+                <textarea
+                  value={tool.mockResponse ?? ''}
+                  onChange={(e) => updateTool(idx, 'mockResponse', e.target.value)}
+                  placeholder='{"result": "..."}'
+                  rows={4}
+                  className={`w-full px-3 py-2 rounded-lg bg-surface-overlay border text-gray-100 text-xs font-mono
+                    focus:outline-none focus:ring-2 focus:ring-accent/50 resize-y
+                    ${tool.mockResponse && !isValidJson(tool.mockResponse)
+                      ? 'border-red-500 focus:border-red-500'
+                      : 'border-border focus:border-accent'
+                    }`}
+                />
+                {tool.mockResponse && !isValidJson(tool.mockResponse) && (
+                  <p className="text-xs text-red-400">Invalid JSON — fix before saving</p>
+                )}
               </div>
             </div>
           )}
@@ -97,7 +136,7 @@ export function ToolsEditor({ tools, onSave }: ToolsEditorProps) {
       ))}
       <div className="flex items-center gap-3">
         <Button variant="secondary" size="sm" onClick={addTool}>+ Add tool</Button>
-        <Button size="sm" onClick={handleSave} loading={saving}>Save tools</Button>
+        <Button size="sm" onClick={handleSave} loading={saving} disabled={hasJsonError}>Save tools</Button>
       </div>
     </div>
   );
