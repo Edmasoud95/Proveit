@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { Button } from '../ui/Button';
@@ -20,6 +20,7 @@ export function GenerateStubsButton({ pocId }: GenerateStubsButtonProps) {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
 
   const generateMutation = useMutation({
     mutationFn: (overwrite: boolean) =>
@@ -33,6 +34,19 @@ export function GenerateStubsButton({ pocId }: GenerateStubsButtonProps) {
       setConfirming(false);
     },
   });
+
+  const isLoading = checking || generateMutation.isPending;
+
+  useEffect(() => {
+    if (!isLoading) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(0);
+    const start = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [isLoading]);
 
   async function handleClick() {
     setChecking(true);
@@ -54,12 +68,15 @@ export function GenerateStubsButton({ pocId }: GenerateStubsButtonProps) {
     }
   }
 
-  const isLoading = checking || generateMutation.isPending;
-  const buttonLabel = checking
-    ? 'Checking stubs…'
-    : generateMutation.isPending
-    ? 'Generating…'
-    : 'Generate stubs';
+  const phase = checking ? 'Checking existing stubs…' : 'Generating mock responses…';
+
+  const statusPanel = isLoading && (
+    <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-overlay border border-border text-xs">
+      <span className="w-3 h-3 shrink-0 border border-accent border-t-transparent rounded-full animate-spin" />
+      <span className="text-gray-300">{phase}</span>
+      <span className="ml-auto tabular-nums text-muted">{elapsed}s</span>
+    </div>
+  );
 
   if (confirming) {
     return (
@@ -84,19 +101,23 @@ export function GenerateStubsButton({ pocId }: GenerateStubsButtonProps) {
             Cancel
           </button>
         </div>
+        {statusPanel}
       </div>
     );
   }
 
   return (
-    <Button
-      variant="secondary"
-      size="sm"
-      onClick={handleClick}
-      loading={isLoading}
-      disabled={isLoading}
-    >
-      <Sparkle /> {buttonLabel}
-    </Button>
+    <div className="flex flex-col gap-2">
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={handleClick}
+        loading={isLoading}
+        disabled={isLoading}
+      >
+        <Sparkle /> {isLoading ? (checking ? 'Checking…' : 'Generating…') : 'Generate stubs'}
+      </Button>
+      {statusPanel}
+    </div>
   );
 }

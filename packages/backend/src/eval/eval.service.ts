@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Subject } from 'rxjs';
+import { Injectable, OnModuleInit, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ReplaySubject } from 'rxjs';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
@@ -30,14 +30,21 @@ export interface EvalSseEvent {
 }
 
 @Injectable()
-export class EvalService {
-  private runSubjects = new Map<string, Subject<EvalSseEvent>>();
+export class EvalService implements OnModuleInit {
+  private runSubjects = new Map<string, ReplaySubject<EvalSseEvent>>();
 
   constructor(
     private prisma: PrismaService,
     private llmService: LlmService,
     private judgeService: JudgeService,
   ) {}
+
+  async onModuleInit() {
+    await this.prisma.evalRun.updateMany({
+      where: { status: { in: ['running', 'pending'] } },
+      data: { status: 'failed', completedAt: new Date() },
+    });
+  }
 
   async addCases(pocId: string, cases: Array<{ name: string; input: unknown; judgeCriteria: string }>) {
     const existing = await this.prisma.evalCase.count({ where: { pocConfigId: pocId } });
@@ -120,9 +127,9 @@ export class EvalService {
     return { runId: run.id, totalCases: cases.length, status: 'pending' };
   }
 
-  subscribeToRun(runId: string): Subject<EvalSseEvent> {
+  subscribeToRun(runId: string): ReplaySubject<EvalSseEvent> {
     if (!this.runSubjects.has(runId)) {
-      this.runSubjects.set(runId, new Subject<EvalSseEvent>());
+      this.runSubjects.set(runId, new ReplaySubject<EvalSseEvent>(200));
     }
     return this.runSubjects.get(runId)!;
   }
@@ -314,21 +321,34 @@ export class EvalService {
       poc.llmConnection.apiKey ?? undefined,
     );
 
+    const userPrompt = buildGenerateStubsUserPrompt(toolsToGenerate);
+    console.log('[generateStubs] model:', poc.llmConnection.model);
+    console.log('[generateStubs] tools to generate:', toolsToGenerate.map((t) => t.name));
+    console.log('[generateStubs] user prompt:\n', userPrompt);
+
     const response = await client.chat.completions.create({
       model: poc.llmConnection.model,
       messages: [
         { role: 'system', content: buildGenerateStubsSystemPrompt() },
-        { role: 'user', content: buildGenerateStubsUserPrompt(toolsToGenerate) },
+        { role: 'user', content: userPrompt },
       ],
       temperature: 0.7,
     });
 
     const raw = response.choices[0].message.content ?? '{}';
+    console.log('[generateStubs] raw LLM response:\n', raw);
+
     const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? raw.match(/([\s\S]*)/);
     const jsonStr = jsonMatch ? jsonMatch[1].trim() : raw.trim();
+    console.log('[generateStubs] extracted JSON string:\n', jsonStr);
 
     let parsed: Record<string, unknown> = {};
-    try { parsed = JSON.parse(jsonStr); } catch { /* all tools go to failed */ }
+    try {
+      parsed = JSON.parse(jsonStr);
+      console.log('[generateStubs] parsed keys:', Object.keys(parsed));
+    } catch (err) {
+      console.error('[generateStubs] JSON parse failed:', err);
+    }
 
     const generated: string[] = [];
     const failed: string[] = [];

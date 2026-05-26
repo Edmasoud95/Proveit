@@ -10,6 +10,7 @@ interface EvalResultCardProps {
   reasoning?: string;
   rawResponse?: string;
   latencyMs?: number;
+  isNew?: boolean;
 }
 
 const statusBadge: Record<EvalResultStatus, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
@@ -20,6 +21,12 @@ const statusBadge: Record<EvalResultStatus, 'success' | 'error' | 'warning' | 'i
   pending: 'default',
 };
 
+const flashBorder: Partial<Record<EvalResultStatus, string>> = {
+  passed: 'border-green-700/60 bg-green-900/10',
+  failed: 'border-red-700/60 bg-red-900/10',
+  errored: 'border-yellow-700/60 bg-yellow-900/10',
+};
+
 export function EvalResultCard({
   caseName,
   status,
@@ -27,17 +34,29 @@ export function EvalResultCard({
   reasoning,
   rawResponse,
   latencyMs,
+  isNew,
 }: EvalResultCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="bg-surface-raised border border-border rounded-lg overflow-hidden">
+    <div
+      className={`border rounded-lg overflow-hidden transition-colors duration-700 ${
+        isNew && flashBorder[status]
+          ? flashBorder[status]
+          : 'bg-surface-raised border-border'
+      }`}
+    >
       <button
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-surface-overlay transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <Badge variant={statusBadge[status]}>{status}</Badge>
+          <span className="relative inline-flex items-center">
+            {status === 'running' && (
+              <span className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            )}
+            <Badge variant={statusBadge[status]}>{status}</Badge>
+          </span>
           <span className="text-sm font-medium text-gray-200 truncate">{caseName}</span>
         </div>
         <div className="flex items-center gap-3 shrink-0 ml-3">
