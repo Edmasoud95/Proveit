@@ -1,0 +1,28 @@
+{
+    "airun.settings": {
+        "workspaceId": "7e9eceed-75b8-4892-b9f1-85de3bf91f5c"
+    },
+    "claudeCode.environmentVariables": [
+        {
+            "name": "ANTHROPIC_LOG",
+            "value": "debug"
+        },
+        {
+            "name": "ANTHROPIC_BASE_URL",
+            "value": "http://localhost:50149"
+        },
+        {
+            "name": "ANTHROPIC_AUTH_TOKEN",
+            "value": "dummy"
+        },
+        {
+            "name": "NO_PROXY",
+            "value": "localhost,127.0.0.1"
+        },
+        {
+            "name": "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS",
+            "value": "1"
+        }
+    ],
+    "claudeCode.disableLoginPrompt": true
+}
