@@ -2,6 +2,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+  mockResponse?: string;
 }
 
 export interface EvalCaseInput {

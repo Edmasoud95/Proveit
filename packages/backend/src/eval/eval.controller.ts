@@ -19,6 +19,7 @@ class AddCasesDto {
 
 class GenerateCasesDto {
   count?: number = 5;
+  toolFocused?: boolean = false;
 }
 
 @Controller('pocs/:pocId/evals')
@@ -32,7 +33,7 @@ export class EvalController {
 
   @Post('generate')
   generateCases(@Param('pocId') pocId: string, @Body() dto: GenerateCasesDto) {
-    return this.evalService.generateCases(pocId, dto.count);
+    return this.evalService.generateCases(pocId, dto.count, dto.toolFocused);
   }
 
   @Post('run')

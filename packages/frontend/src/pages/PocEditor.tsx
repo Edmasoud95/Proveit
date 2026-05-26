@@ -8,7 +8,10 @@ import { ToolsEditor } from '../components/poc/ToolsEditor';
 import { EvalCasesList } from '../components/eval/EvalCasesList';
 import { EvalImport } from '../components/eval/EvalImport';
 import { GenerateEvalsButton } from '../components/eval/GenerateEvalsButton';
+import { Button } from '../components/ui/Button';
+import { Sparkle } from '../components/ui/Sparkle';
 import { ExportButton } from '../components/poc/ExportButton';
+import { GenerateStubsButton } from '../components/poc/GenerateStubsButton';
 import { Spinner } from '../components/ui/Spinner';
 
 type Tab = 'prompt' | 'tools' | 'evals';
@@ -37,6 +40,11 @@ export function PocEditor() {
 
   const generateCasesMutation = useMutation({
     mutationFn: (count: number) => api.post(`/pocs/${id}/evals/generate`, { count }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['poc', id] }),
+  });
+
+  const generateToolDataMutation = useMutation({
+    mutationFn: () => api.post(`/pocs/${id}/evals/generate`, { count: 5, toolFocused: true }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['poc', id] }),
   });
 
@@ -97,22 +105,35 @@ export function PocEditor() {
         {tab === 'prompt' && (
           <SystemPromptEditor
             value={poc.systemPrompt}
-            onSave={(systemPrompt) => updateMutation.mutateAsync({ systemPrompt })}
+            onSave={async (systemPrompt) => { await updateMutation.mutateAsync({ systemPrompt }); }}
           />
         )}
         {tab === 'tools' && (
-          <ToolsEditor
-            tools={poc.tools}
-            onSave={(tools) => updateMutation.mutateAsync({ tools })}
-          />
+          <div className="flex flex-col gap-4">
+            <div className="flex justify-end">
+              <GenerateStubsButton pocId={poc.id} />
+            </div>
+            <ToolsEditor
+              tools={poc.tools}
+              onSave={async (tools) => { await updateMutation.mutateAsync({ tools }); }}
+            />
+          </div>
         )}
         {tab === 'evals' && (
           <div className="flex flex-col gap-4">
             <div className="flex gap-3">
-              <EvalImport onImport={(cases) => importCasesMutation.mutateAsync(cases as never[])} />
+              <EvalImport onImport={async (cases) => { await importCasesMutation.mutateAsync(cases as never[]); }} />
               <GenerateEvalsButton
-                onGenerate={(count) => generateCasesMutation.mutateAsync(count)}
+                onGenerate={async (count) => { await generateCasesMutation.mutateAsync(count); }}
               />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => generateToolDataMutation.mutate()}
+                loading={generateToolDataMutation.isPending}
+              >
+                <Sparkle /> Generate test data
+              </Button>
             </div>
             <EvalCasesList cases={poc.evalCases} />
           </div>

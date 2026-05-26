@@ -90,3 +90,10 @@ Key backend pattern: `POST /api/pocs/scaffold` is the main entry point — takes
 - Frontend: React 18, React Router 6, TanStack Query 5, Tailwind CSS 3, Vite 5
 - Validation: `class-validator` + `class-transformer` on backend DTOs
 - DB file: `packages/backend/prisma/dev.db` (gitignored)
+
+## Active Technologies
+- TypeScript 5.x (strict mode), Node.js 20 + NestJS 10 (backend), React 18 + Vite 5 + Tailwind CSS 3 (frontend), OpenAI Node.js SDK (002-tool-stubs)
+- SQLite via Prisma 5 — no migration required (tools stored as JSON string in existing `PocConfig.tools` column) (002-tool-stubs)
+
+## Recent Changes
+- 002-tool-stubs: Added TypeScript 5.x (strict mode), Node.js 20 + NestJS 10 (backend), React 18 + Vite 5 + Tailwind CSS 3 (frontend), OpenAI Node.js SDK
