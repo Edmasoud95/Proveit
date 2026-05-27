@@ -1,15 +1,19 @@
 import { useState } from 'react';
 import { Badge } from '../ui/Badge';
-import type { EvalResultStatus } from '@proveit/shared';
+import { PipelineTrace } from './PipelineTrace';
+import type { EvalResultStatus, PipelineStep, FailureStep } from '@proveit/shared';
 
 interface EvalResultCardProps {
   caseId: string;
   caseName: string;
   status: EvalResultStatus;
-  score?: number;
-  reasoning?: string;
-  rawResponse?: string;
-  latencyMs?: number;
+  score?: number | null;
+  reasoning?: string | null;
+  rawResponse?: string | null;
+  latencyMs?: number | null;
+  pipelineTrace?: PipelineStep[] | null;
+  failureStep?: FailureStep | null;
+  errorDetail?: string | null;
   isNew?: boolean;
 }
 
@@ -27,6 +31,12 @@ const flashBorder: Partial<Record<EvalResultStatus, string>> = {
   errored: 'border-yellow-700/60 bg-yellow-900/10',
 };
 
+const failureStepLabel: Record<FailureStep, string> = {
+  wrong_tool: 'Wrong tool',
+  wrong_arguments: 'Wrong arguments',
+  wrong_final_response: 'Wrong final response',
+};
+
 export function EvalResultCard({
   caseName,
   status,
@@ -34,9 +44,13 @@ export function EvalResultCard({
   reasoning,
   rawResponse,
   latencyMs,
+  pipelineTrace,
+  failureStep,
+  errorDetail,
   isNew,
 }: EvalResultCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [showTrace, setShowTrace] = useState(false);
 
   return (
     <div
@@ -58,12 +72,15 @@ export function EvalResultCard({
             <Badge variant={statusBadge[status]}>{status}</Badge>
           </span>
           <span className="text-sm font-medium text-gray-200 truncate">{caseName}</span>
+          {failureStep && (
+            <span className="text-xs text-red-400/80 shrink-0">{failureStepLabel[failureStep]}</span>
+          )}
         </div>
         <div className="flex items-center gap-3 shrink-0 ml-3">
-          {score !== undefined && (
+          {score != null && (
             <span className="text-sm font-mono text-gray-400">{score}/10</span>
           )}
-          {latencyMs !== undefined && (
+          {latencyMs != null && (
             <span className="text-xs text-muted">{latencyMs}ms</span>
           )}
           <span className="text-muted text-xs">{expanded ? '▾' : '▸'}</span>
@@ -72,6 +89,12 @@ export function EvalResultCard({
 
       {expanded && (
         <div className="px-4 pb-4 flex flex-col gap-3 border-t border-border">
+          {errorDetail && (
+            <div className="mt-3">
+              <p className="text-xs text-muted uppercase tracking-wide mb-1">Error</p>
+              <p className="text-sm text-yellow-300 font-mono">{errorDetail}</p>
+            </div>
+          )}
           {reasoning && (
             <div className="mt-3">
               <p className="text-xs text-muted uppercase tracking-wide mb-1">Judge reasoning</p>
@@ -84,6 +107,21 @@ export function EvalResultCard({
               <pre className="text-xs text-gray-400 bg-surface-overlay rounded-lg p-3 overflow-auto max-h-40 whitespace-pre-wrap">
                 {rawResponse}
               </pre>
+            </div>
+          )}
+          {pipelineTrace && pipelineTrace.length > 0 && (
+            <div>
+              <button
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors mb-2"
+                onClick={(e) => { e.stopPropagation(); setShowTrace(!showTrace); }}
+              >
+                {showTrace ? '▾ Hide pipeline trace' : '▸ Show pipeline trace'}
+              </button>
+              {showTrace && (
+                <div className="bg-surface-overlay rounded-lg p-3 overflow-auto max-h-96">
+                  <PipelineTrace steps={pipelineTrace} failureStep={failureStep} />
+                </div>
+              )}
             </div>
           )}
         </div>

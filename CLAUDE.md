@@ -94,6 +94,8 @@ Key backend pattern: `POST /api/pocs/scaffold` is the main entry point — takes
 ## Active Technologies
 - TypeScript 5.x (strict mode), Node.js 20 + NestJS 10 (backend), React 18 + Vite 5 + Tailwind CSS 3 (frontend), OpenAI Node.js SDK (002-tool-stubs)
 - SQLite via Prisma 5 — no migration required (tools stored as JSON string in existing `PocConfig.tools` column) (002-tool-stubs)
+- TypeScript 5.x (strict mode), Node.js 20 + NestJS 10 (backend), React 18 + Vite 5 + Tailwind CSS 3 (frontend), OpenAI Node.js SDK, Prisma 5 (003-versioned-eval-runs)
+- SQLite via Prisma 5 — new `EvalSuiteVersion` model + extensions to `EvalRun` and `EvalResult` (003-versioned-eval-runs)
 
 ## Recent Changes
 - 002-tool-stubs: Added TypeScript 5.x (strict mode), Node.js 20 + NestJS 10 (backend), React 18 + Vite 5 + Tailwind CSS 3 (frontend), OpenAI Node.js SDK

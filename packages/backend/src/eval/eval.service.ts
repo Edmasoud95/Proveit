@@ -46,6 +46,8 @@ export class EvalService implements OnModuleInit {
     });
   }
 
+  // ─── Eval Case CRUD ────────────────────────────────────────────────────────
+
   async addCases(pocId: string, cases: Array<{ name: string; input: unknown; judgeCriteria: string }>) {
     const existing = await this.prisma.evalCase.count({ where: { pocConfigId: pocId } });
     const created = await Promise.all(
@@ -61,67 +63,110 @@ export class EvalService implements OnModuleInit {
         }),
       ),
     );
+    await this.createEvalSuiteVersion(pocId);
     return { cases: created.map((c) => ({ ...c, input: JSON.parse(c.input) })) };
   }
 
-  async generateCases(pocId: string, count: number = 5, toolFocused: boolean = false) {
-    const poc = await this.prisma.pocConfig.findUnique({
-      where: { id: pocId },
-      include: { llmConnection: true },
+  async updateCase(pocId: string, caseId: string, data: Partial<{ name: string; input: unknown; judgeCriteria: string; order: number }>) {
+    const evalCase = await this.prisma.evalCase.findFirst({ where: { id: caseId, pocConfigId: pocId } });
+    if (!evalCase) throw new NotFoundException('Eval case not found');
+    const updated = await this.prisma.evalCase.update({
+      where: { id: caseId },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.input !== undefined && { input: JSON.stringify(data.input) }),
+        ...(data.judgeCriteria !== undefined && { judgeCriteria: data.judgeCriteria }),
+        ...(data.order !== undefined && { order: data.order }),
+      },
     });
-    if (!poc) throw new NotFoundException('POC not found');
-    if (!poc.llmConnection) throw new BadRequestException('Connect an LLM first');
-    if (!poc.llmConnection.model?.trim()) {
-      throw new BadRequestException('No model selected — set a model in LLM Settings first');
-    }
-
-    const client = this.llmService.getClient(
-      poc.llmConnection.endpointUrl,
-      poc.llmConnection.apiKey ?? undefined,
-    );
-
-    const tools: ToolDefinition[] = JSON.parse(poc.tools);
-
-    const systemPrompt = toolFocused
-      ? buildGenerateToolDataSystemPrompt()
-      : buildGenerateEvalsSystemPrompt();
-    const userPrompt = toolFocused
-      ? buildGenerateToolDataUserPrompt(poc.systemPrompt, tools, count)
-      : buildGenerateEvalsUserPrompt(poc.systemPrompt, poc.tools, count);
-
-    const response = await client.chat.completions.create({
-      model: poc.llmConnection.model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.8,
-    });
-
-    const raw = response.choices[0].message.content ?? '[]';
-    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? raw.match(/([\s\S]*)/);
-    const jsonStr = jsonMatch ? jsonMatch[1].trim() : raw.trim();
-
-    let parsed: Array<{ name: string; input: unknown; judgeCriteria: string }>;
-    try {
-      const obj = JSON.parse(jsonStr);
-      parsed = Array.isArray(obj) ? obj : (obj.cases ?? []);
-    } catch {
-      throw new BadRequestException('Failed to parse generated eval cases');
-    }
-
-    return this.addCases(pocId, parsed.slice(0, count));
+    await this.createEvalSuiteVersion(pocId);
+    return { ...updated, input: JSON.parse(updated.input) };
   }
 
+  async deleteCase(pocId: string, caseId: string) {
+    const evalCase = await this.prisma.evalCase.findFirst({ where: { id: caseId, pocConfigId: pocId } });
+    if (!evalCase) throw new NotFoundException('Eval case not found');
+    await this.prisma.evalCase.delete({ where: { id: caseId } });
+    await this.createEvalSuiteVersion(pocId);
+  }
+
+  // ─── Eval Suite Versioning ─────────────────────────────────────────────────
+
+  private async createEvalSuiteVersion(pocId: string): Promise<void> {
+    const [cases, latest] = await Promise.all([
+      this.prisma.evalCase.findMany({
+        where: { pocConfigId: pocId },
+        orderBy: { order: 'asc' },
+      }),
+      this.prisma.evalSuiteVersion.findFirst({
+        where: { pocConfigId: pocId },
+        orderBy: { versionNumber: 'desc' },
+      }),
+    ]);
+
+    const versionNumber = (latest?.versionNumber ?? 0) + 1;
+    const casesSnapshot = JSON.stringify(
+      cases.map((c) => ({
+        id: c.id,
+        name: c.name,
+        input: c.input,
+        judgeCriteria: c.judgeCriteria,
+        order: c.order,
+      })),
+    );
+
+    await this.prisma.evalSuiteVersion.create({
+      data: { pocConfigId: pocId, versionNumber, casesSnapshot },
+    });
+  }
+
+  async listVersions(pocId: string) {
+    const versions = await this.prisma.evalSuiteVersion.findMany({
+      where: { pocConfigId: pocId },
+      orderBy: { versionNumber: 'desc' },
+      include: { _count: { select: { runs: true } } },
+    });
+    return versions.map((v) => ({
+      id: v.id,
+      versionNumber: v.versionNumber,
+      casesSnapshot: JSON.parse(v.casesSnapshot) as unknown[],
+      createdAt: v.createdAt.toISOString(),
+      runCount: v._count.runs,
+    }));
+  }
+
+  // ─── Run Execution ─────────────────────────────────────────────────────────
+
   async startRun(pocId: string): Promise<{ runId: string; totalCases: number; status: string }> {
-    const cases = await this.prisma.evalCase.findMany({ where: { pocConfigId: pocId } });
+    const [cases, poc, latestVersion] = await Promise.all([
+      this.prisma.evalCase.findMany({ where: { pocConfigId: pocId } }),
+      this.prisma.pocConfig.findUnique({ where: { id: pocId }, include: { llmConnection: true } }),
+      this.prisma.evalSuiteVersion.findFirst({
+        where: { pocConfigId: pocId },
+        orderBy: { versionNumber: 'desc' },
+      }),
+    ]);
+
     if (cases.length === 0) throw new BadRequestException('No eval cases to run');
 
-    const run = await this.prisma.evalRun.create({
-      data: { pocConfigId: pocId, status: 'pending', totalCases: cases.length },
+    const maxRunNumber = await this.prisma.evalRun.aggregate({
+      where: { pocConfigId: pocId },
+      _max: { runNumber: true },
     });
 
-    // Execute async, don't await
+    const run = await this.prisma.evalRun.create({
+      data: {
+        pocConfigId: pocId,
+        status: 'pending',
+        totalCases: cases.length,
+        runNumber: (maxRunNumber._max.runNumber ?? 0) + 1,
+        evalSuiteVersionId: latestVersion?.id ?? null,
+        snapshotSystemPrompt: poc?.systemPrompt ?? '',
+        snapshotModel: poc?.llmConnection?.model ?? '',
+        snapshotEndpointUrl: poc?.llmConnection?.endpointUrl ?? '',
+      },
+    });
+
     this.executeRun(pocId, run.id).catch(console.error);
 
     return { runId: run.id, totalCases: cases.length, status: 'pending' };
@@ -173,8 +218,16 @@ export class EvalService implements OnModuleInit {
         const start = Date.now();
 
         const pocTools: ToolDefinition[] = JSON.parse(poc.tools);
-        const agentResponse = await this.callAgent(client, model, poc.systemPrompt, input.messages, pocTools);
+        const { response: agentResponse, history } = await this.callAgent(
+          client,
+          model,
+          poc.systemPrompt,
+          input.messages,
+          pocTools,
+        );
         const latencyMs = Date.now() - start;
+
+        const pipelineTrace = this.serializePipelineTrace(history);
 
         const verdict = await this.judgeService.judge(
           client,
@@ -182,6 +235,7 @@ export class EvalService implements OnModuleInit {
           evalCase.input,
           evalCase.judgeCriteria,
           agentResponse,
+          pipelineTrace,
         );
 
         const status = verdict.passed ? 'passed' : 'failed';
@@ -196,6 +250,8 @@ export class EvalService implements OnModuleInit {
             reasoning: verdict.reasoning,
             rawResponse: agentResponse,
             latencyMs,
+            pipelineTrace,
+            failureStep: verdict.failureStep ?? null,
           },
         });
 
@@ -203,19 +259,43 @@ export class EvalService implements OnModuleInit {
           type: 'case-complete',
           data: {
             caseId: evalCase.id,
+            caseName: evalCase.name,
             status,
             score: verdict.score,
             reasoning: verdict.reasoning,
+            rawResponse: agentResponse,
             latencyMs,
+            pipelineTrace: pipelineTrace ? JSON.parse(pipelineTrace) : null,
+            failureStep: verdict.failureStep ?? null,
+            errorDetail: null,
           },
         });
       } catch (err: unknown) {
         failed++;
-        const error = err instanceof Error ? err.message : 'Unknown error';
+        const errorDetail = err instanceof Error ? err.message : 'Unknown error';
         await this.prisma.evalResult.create({
-          data: { evalCaseId: evalCase.id, runId, status: 'errored' },
+          data: {
+            evalCaseId: evalCase.id,
+            runId,
+            status: 'errored',
+            errorDetail,
+          },
         });
-        subject.next({ type: 'error', data: { caseId: evalCase.id, error } });
+        subject.next({
+          type: 'case-complete',
+          data: {
+            caseId: evalCase.id,
+            caseName: evalCase.name,
+            status: 'errored',
+            score: null,
+            reasoning: null,
+            rawResponse: null,
+            latencyMs: null,
+            pipelineTrace: null,
+            failureStep: null,
+            errorDetail,
+          },
+        });
       }
     }
 
@@ -232,13 +312,20 @@ export class EvalService implements OnModuleInit {
     this.runSubjects.delete(runId);
   }
 
+  private serializePipelineTrace(history: OpenAI.Chat.ChatCompletionMessageParam[]): string | null {
+    // Exclude the system prompt (first message) from the trace
+    const traceMessages = history.slice(1);
+    if (traceMessages.length === 0) return null;
+    return JSON.stringify(traceMessages);
+  }
+
   private async callAgent(
     client: OpenAI,
     model: string,
     systemPrompt: string,
     messages: unknown[],
     tools: ToolDefinition[],
-  ): Promise<string> {
+  ): Promise<{ response: string; history: OpenAI.Chat.ChatCompletionMessageParam[] }> {
     const MAX_ITERATIONS = 10;
 
     const stubbedTools = tools.filter((t) => t.mockResponse);
@@ -264,10 +351,10 @@ export class EvalService implements OnModuleInit {
       const choice = response.choices[0];
 
       if (choice.finish_reason !== 'tool_calls' || !choice.message.tool_calls?.length) {
-        return choice.message.content ?? '';
+        history.push({ role: 'assistant', content: choice.message.content ?? '' });
+        return { response: choice.message.content ?? '', history };
       }
 
-      // Push assistant message first — required before tool results
       history.push(choice.message);
 
       for (const toolCall of choice.message.tool_calls) {
@@ -292,6 +379,252 @@ export class EvalService implements OnModuleInit {
     }
 
     throw new Error('Tool call loop exceeded maximum iterations');
+  }
+
+  // ─── Run History ───────────────────────────────────────────────────────────
+
+  async listRuns(pocId: string) {
+    const runs = await this.prisma.evalRun.findMany({
+      where: { pocConfigId: pocId },
+      orderBy: { startedAt: 'desc' },
+      include: {
+        evalSuiteVersion: { select: { versionNumber: true } },
+      },
+    });
+    return runs.map((r) => ({
+      id: r.id,
+      pocConfigId: r.pocConfigId,
+      status: r.status,
+      totalCases: r.totalCases,
+      passedCases: r.passedCases,
+      failedCases: r.failedCases,
+      startedAt: r.startedAt.toISOString(),
+      completedAt: r.completedAt?.toISOString() ?? null,
+      runNumber: r.runNumber,
+      evalSuiteVersionId: r.evalSuiteVersionId ?? null,
+      evalSuiteVersionNumber: r.evalSuiteVersion?.versionNumber ?? null,
+      snapshotModel: r.snapshotModel,
+      snapshotEndpointUrl: r.snapshotEndpointUrl,
+    }));
+  }
+
+  async getRun(pocId: string, runId: string) {
+    const run = await this.prisma.evalRun.findFirst({
+      where: { id: runId, pocConfigId: pocId },
+      include: {
+        results: {
+          include: { evalCase: { select: { name: true } } },
+        },
+        evalSuiteVersion: { select: { versionNumber: true } },
+      },
+    });
+    if (!run) throw new NotFoundException('Eval run not found');
+    return {
+      id: run.id,
+      pocConfigId: run.pocConfigId,
+      status: run.status,
+      totalCases: run.totalCases,
+      passedCases: run.passedCases,
+      failedCases: run.failedCases,
+      startedAt: run.startedAt.toISOString(),
+      completedAt: run.completedAt?.toISOString() ?? null,
+      runNumber: run.runNumber,
+      evalSuiteVersionId: run.evalSuiteVersionId ?? null,
+      evalSuiteVersionNumber: run.evalSuiteVersion?.versionNumber ?? null,
+      snapshotSystemPrompt: run.snapshotSystemPrompt,
+      snapshotModel: run.snapshotModel,
+      snapshotEndpointUrl: run.snapshotEndpointUrl,
+      results: run.results.map((r) => ({
+        caseId: r.evalCaseId,
+        caseName: r.evalCase.name,
+        status: r.status,
+        score: r.score ?? null,
+        reasoning: r.reasoning ?? null,
+        rawResponse: r.rawResponse ?? null,
+        latencyMs: r.latencyMs ?? null,
+        pipelineTrace: r.pipelineTrace ? this.parsePipelineTrace(r.pipelineTrace) : null,
+        errorDetail: r.errorDetail ?? null,
+        failureStep: (r.failureStep as 'wrong_tool' | 'wrong_arguments' | 'wrong_final_response' | null) ?? null,
+      })),
+    };
+  }
+
+  async deleteRun(pocId: string, runId: string): Promise<void> {
+    const run = await this.prisma.evalRun.findFirst({ where: { id: runId, pocConfigId: pocId } });
+    if (!run) throw new NotFoundException('Eval run not found');
+    await this.prisma.evalRun.delete({ where: { id: runId } });
+  }
+
+  async compareRuns(pocId: string, runAId: string, runBId: string) {
+    if (runAId === runBId) throw new BadRequestException('Cannot compare a run with itself');
+
+    const [runA, runB] = await Promise.all([
+      this.prisma.evalRun.findFirst({
+        where: { id: runAId, pocConfigId: pocId },
+        include: {
+          results: true,
+          evalSuiteVersion: { select: { versionNumber: true } },
+        },
+      }),
+      this.prisma.evalRun.findFirst({
+        where: { id: runBId, pocConfigId: pocId },
+        include: {
+          results: true,
+          evalSuiteVersion: { select: { versionNumber: true } },
+        },
+      }),
+    ]);
+
+    if (!runA) throw new NotFoundException(`Run ${runAId} not found`);
+    if (!runB) throw new NotFoundException(`Run ${runBId} not found`);
+
+    if (runA.evalSuiteVersionId !== runB.evalSuiteVersionId) {
+      const vA = runA.evalSuiteVersion?.versionNumber ?? '?';
+      const vB = runB.evalSuiteVersion?.versionNumber ?? '?';
+      throw new BadRequestException({
+        error: 'CROSS_VERSION_COMPARISON',
+        message: `Runs use different eval suite versions (v${vA} vs v${vB}). Comparisons are only valid within the same version.`,
+      });
+    }
+
+    // Get all cases for this POC to build the full case list
+    const allCases = await this.prisma.evalCase.findMany({
+      where: { pocConfigId: pocId },
+      orderBy: { order: 'asc' },
+    });
+
+    const mapResults = (run: typeof runA) =>
+      new Map(run.results.map((r) => [r.evalCaseId, r.status]));
+
+    const aMap = mapResults(runA);
+    const bMap = mapResults(runB);
+
+    const isPassing = (s: string | undefined) => s === 'passed';
+    const isFailing = (s: string | undefined) => !s || s !== 'passed';
+
+    const cases = allCases.map((c) => {
+      const aStatus = (aMap.get(c.id) ?? 'not_executed') as string;
+      const bStatus = (bMap.get(c.id) ?? 'not_executed') as string;
+
+      let change: 'improved' | 'regressed' | 'both_passed' | 'both_failed';
+      if (isPassing(aStatus) && isPassing(bStatus)) change = 'both_passed';
+      else if (isFailing(aStatus) && isFailing(bStatus)) change = 'both_failed';
+      else if (isPassing(aStatus) && isFailing(bStatus)) change = 'regressed';
+      else change = 'improved';
+
+      return { caseId: c.id, caseName: c.name, runAStatus: aStatus, runBStatus: bStatus, change };
+    });
+
+    const toSummary = (run: typeof runA) => ({
+      id: run.id,
+      pocConfigId: run.pocConfigId,
+      status: run.status,
+      totalCases: run.totalCases,
+      passedCases: run.passedCases,
+      failedCases: run.failedCases,
+      startedAt: run.startedAt.toISOString(),
+      completedAt: run.completedAt?.toISOString() ?? null,
+      runNumber: run.runNumber,
+      evalSuiteVersionId: run.evalSuiteVersionId ?? null,
+      evalSuiteVersionNumber: run.evalSuiteVersion?.versionNumber ?? null,
+      snapshotModel: run.snapshotModel,
+      snapshotEndpointUrl: run.snapshotEndpointUrl,
+    });
+
+    return { runA: toSummary(runA), runB: toSummary(runB), cases };
+  }
+
+  private parsePipelineTrace(traceJson: string): unknown[] | null {
+    try {
+      const raw = JSON.parse(traceJson) as Array<Record<string, unknown>>;
+
+      // Build a map from tool_call_id → tool name for resolving tool response names
+      const toolNameMap = new Map<string, string>();
+      for (const msg of raw) {
+        if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+          for (const tc of msg.tool_calls as Array<{ id: string; function: { name: string; arguments: string } }>) {
+            toolNameMap.set(tc.id, tc.function.name);
+          }
+        }
+      }
+
+      return raw.map((msg) => {
+        if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+          return {
+            role: 'assistant',
+            content: msg.content ?? null,
+            toolCalls: (msg.tool_calls as Array<{ id: string; function: { name: string; arguments: string } }>).map((tc) => ({
+              id: tc.id,
+              name: tc.function.name,
+              arguments: tc.function.arguments,
+            })),
+          };
+        }
+        if (msg.role === 'tool') {
+          const toolCallId = msg.tool_call_id as string;
+          return {
+            role: 'tool',
+            toolCallId,
+            toolName: toolNameMap.get(toolCallId) ?? '',
+            content: (msg.content as string) ?? '',
+          };
+        }
+        return { role: msg.role, content: msg.content ?? '' };
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  // ─── Generation ────────────────────────────────────────────────────────────
+
+  async generateCases(pocId: string, count: number = 5, toolFocused: boolean = false) {
+    const poc = await this.prisma.pocConfig.findUnique({
+      where: { id: pocId },
+      include: { llmConnection: true },
+    });
+    if (!poc) throw new NotFoundException('POC not found');
+    if (!poc.llmConnection) throw new BadRequestException('Connect an LLM first');
+    if (!poc.llmConnection.model?.trim()) {
+      throw new BadRequestException('No model selected — set a model in LLM Settings first');
+    }
+
+    const client = this.llmService.getClient(
+      poc.llmConnection.endpointUrl,
+      poc.llmConnection.apiKey ?? undefined,
+    );
+
+    const tools: ToolDefinition[] = JSON.parse(poc.tools);
+
+    const systemPrompt = toolFocused
+      ? buildGenerateToolDataSystemPrompt()
+      : buildGenerateEvalsSystemPrompt();
+    const userPrompt = toolFocused
+      ? buildGenerateToolDataUserPrompt(poc.systemPrompt, tools, count)
+      : buildGenerateEvalsUserPrompt(poc.systemPrompt, poc.tools, count);
+
+    const response = await client.chat.completions.create({
+      model: poc.llmConnection.model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.8,
+    });
+
+    const raw = response.choices[0].message.content ?? '[]';
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? raw.match(/([\s\S]*)/);
+    const jsonStr = jsonMatch ? jsonMatch[1].trim() : raw.trim();
+
+    let parsed: Array<{ name: string; input: unknown; judgeCriteria: string }>;
+    try {
+      const obj = JSON.parse(jsonStr);
+      parsed = Array.isArray(obj) ? obj : (obj.cases ?? []);
+    } catch {
+      throw new BadRequestException('Failed to parse generated eval cases');
+    }
+
+    return this.addCases(pocId, parsed.slice(0, count));
   }
 
   async generateStubs(pocId: string, overwrite: boolean) {
@@ -370,36 +703,5 @@ export class EvalService implements OnModuleInit {
     });
 
     return { generated, skipped, failed };
-  }
-
-  async listRuns(pocId: string) {
-    return this.prisma.evalRun.findMany({
-      where: { pocConfigId: pocId },
-      orderBy: { startedAt: 'desc' },
-    });
-  }
-
-  async getRun(pocId: string, runId: string) {
-    const run = await this.prisma.evalRun.findFirst({
-      where: { id: runId, pocConfigId: pocId },
-      include: {
-        results: {
-          include: { evalCase: { select: { name: true } } },
-        },
-      },
-    });
-    if (!run) throw new NotFoundException('Eval run not found');
-    return {
-      ...run,
-      results: run.results.map((r) => ({
-        caseId: r.evalCaseId,
-        caseName: r.evalCase.name,
-        status: r.status,
-        score: r.score,
-        reasoning: r.reasoning,
-        rawResponse: r.rawResponse,
-        latencyMs: r.latencyMs,
-      })),
-    };
   }
 }
