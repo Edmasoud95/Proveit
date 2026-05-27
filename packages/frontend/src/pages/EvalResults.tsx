@@ -1,7 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import type { EvalRun, EvalCaseCompleteEvent, EvalRunCompleteEvent } from '@proveit/shared';
+import type {
+  EvalRun,
+  EvalRunDetail,
+  EvalCaseCompleteEvent,
+  EvalRunCompleteEvent,
+  PipelineStep,
+  FailureStep,
+  CompareRunsResponse,
+} from '@proveit/shared';
 import { api } from '../services/api';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -13,11 +21,62 @@ import { useToast } from '../components/ui/Toast';
 
 interface LiveResult {
   caseId: string;
-  caseName?: string;
+  caseName: string;
   status: 'running' | 'passed' | 'failed' | 'errored';
-  score?: number;
-  reasoning?: string;
-  latencyMs?: number;
+  score: number | null;
+  reasoning: string | null;
+  rawResponse: string | null;
+  latencyMs: number | null;
+  pipelineTrace: PipelineStep[] | null;
+  failureStep: FailureStep | null;
+  errorDetail: string | null;
+}
+
+function passRate(run: EvalRun): number {
+  if (run.totalCases === 0) return 0;
+  return Math.round((run.passedCases / run.totalCases) * 100);
+}
+
+function versionLabel(run: EvalRun): string {
+  if (run.evalSuiteVersionNumber != null) return `v${run.evalSuiteVersionNumber}`;
+  return 'v?';
+}
+
+function runLabel(run: EvalRun): string {
+  return run.runNumber > 0 ? `Run #${run.runNumber}` : 'Legacy run';
+}
+
+interface VersionGroup {
+  versionId: string | null;
+  versionNumber: number | null;
+  runs: EvalRun[];
+}
+
+function groupRunsByVersion(runs: EvalRun[]): VersionGroup[] {
+  const map = new Map<string, VersionGroup>();
+  const legacyKey = '__legacy__';
+
+  for (const run of runs) {
+    const key = run.evalSuiteVersionId ?? legacyKey;
+    if (!map.has(key)) {
+      map.set(key, {
+        versionId: run.evalSuiteVersionId ?? null,
+        versionNumber: run.evalSuiteVersionNumber ?? null,
+        runs: [],
+      });
+    }
+    map.get(key)!.runs.push(run);
+  }
+
+  // Sort groups: versioned first (descending versionNumber), then legacy
+  const groups = Array.from(map.values());
+  groups.sort((a, b) => {
+    if (a.versionId === null) return 1;
+    if (b.versionId === null) return -1;
+    return (b.versionNumber ?? 0) - (a.versionNumber ?? 0);
+  });
+
+  return groups;
 }
 
 export function EvalResults() {
@@ -27,6 +86,9 @@ export function EvalResults() {
   const [liveStats, setLiveStats] = useState({ passed: 0, failed: 0, total: 0 });
   const [recentlyCompleted, setRecentlyCompleted] = useState<Set<string>>(new Set());
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [compareSelection, setCompareSelection] = useState<Set<string>>(new Set());
+  const [compareResult, setCompareResult] = useState<CompareRunsResponse | null>(null);
+  const [comparing, setComparing] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const reconnectedRef = useRef(false);
   const { toast } = useToast();
@@ -39,8 +101,8 @@ export function EvalResults() {
 
   const { data: runDetail } = useQuery({
     queryKey: ['eval-run-detail', selectedRunId],
-    queryFn: () => api.get(`/pocs/${id}/evals/runs/${selectedRunId}`),
-    enabled: !!selectedRunId,
+    queryFn: () => api.get<EvalRunDetail>(`/pocs/${id}/evals/runs/${selectedRunId}`),
+    enabled: !!selectedRunId && !comparing,
   });
 
   function connectToRun(runId: string, totalCases: number) {
@@ -52,7 +114,18 @@ export function EvalResults() {
       const data = JSON.parse(e.data) as { caseId: string; name: string };
       setLiveResults((prev) => [
         ...prev.filter((r) => r.caseId !== data.caseId),
-        { caseId: data.caseId, caseName: data.name, status: 'running' },
+        {
+          caseId: data.caseId,
+          caseName: data.name,
+          status: 'running',
+          score: null,
+          reasoning: null,
+          rawResponse: null,
+          latencyMs: null,
+          pipelineTrace: null,
+          failureStep: null,
+          errorDetail: null,
+        },
       ]);
       setLiveStats((s) => ({ ...s, total: Math.max(s.total, totalCases) }));
     });
@@ -62,7 +135,17 @@ export function EvalResults() {
       setLiveResults((prev) =>
         prev.map((r) =>
           r.caseId === data.caseId
-            ? { ...r, status: data.status as LiveResult['status'], score: data.score, reasoning: data.reasoning, latencyMs: data.latencyMs }
+            ? {
+                ...r,
+                status: data.status as LiveResult['status'],
+                score: data.score,
+                reasoning: data.reasoning,
+                rawResponse: data.rawResponse,
+                latencyMs: data.latencyMs,
+                pipelineTrace: data.pipelineTrace,
+                failureStep: data.failureStep,
+                errorDetail: data.errorDetail,
+              }
             : r,
         ),
       );
@@ -97,7 +180,6 @@ export function EvalResults() {
     });
   }
 
-  // Auto-reconnect to any in-progress run after a page refresh
   useEffect(() => {
     if (!runs || running || reconnectedRef.current) return;
     const activeRun = runs.find((r) => r.status === 'running' || r.status === 'pending');
@@ -120,6 +202,8 @@ export function EvalResults() {
     setRunning(true);
     setLiveResults([]);
     setLiveStats({ passed: 0, failed: 0, total: 0 });
+    setCompareResult(null);
+    setCompareSelection(new Set());
 
     const { runId, totalCases } = await api.post<{ runId: string; totalCases: number; status: string }>(
       `/pocs/${id}/evals/run`,
@@ -130,7 +214,52 @@ export function EvalResults() {
     connectToRun(runId, totalCases);
   }
 
+  function toggleCompareSelection(runId: string, versionId: string | null) {
+    setCompareSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(runId)) {
+        next.delete(runId);
+        return next;
+      }
+      // Check cross-version: if something already selected, validate same version
+      if (next.size === 1) {
+        const existingId = [...next][0];
+        const existingRun = runs?.find((r) => r.id === existingId);
+        if (existingRun && existingRun.evalSuiteVersionId !== versionId) {
+          toast('Comparisons are only valid within the same eval suite version.', 'error');
+          return prev;
+        }
+      }
+      if (next.size >= 2) {
+        toast('Select exactly two runs to compare.', 'error');
+        return prev;
+      }
+      next.add(runId);
+      return next;
+    });
+    setCompareResult(null);
+  }
+
+  async function runComparison() {
+    const [runAId, runBId] = [...compareSelection];
+    if (!runAId || !runBId || !id) return;
+    setComparing(true);
+    try {
+      const result = await api.get<CompareRunsResponse>(
+        `/pocs/${id}/evals/compare?runA=${runAId}&runB=${runBId}`,
+      );
+      setCompareResult(result);
+    } catch (err: unknown) {
+      const msg = (err as { message?: string })?.message ?? 'Comparison failed';
+      toast(msg, 'error');
+    } finally {
+      setComparing(false);
+    }
+  }
+
   const completedLive = liveResults.filter((r) => r.status !== 'running').length;
+  const pastRuns = runs?.filter((r) => r.status !== 'running' && r.status !== 'pending') ?? [];
+  const versionGroups = groupRunsByVersion(pastRuns);
 
   return (
     <div className="flex flex-col gap-6">
@@ -181,68 +310,204 @@ export function EvalResults() {
             <EvalResultCard
               key={r.caseId}
               caseId={r.caseId}
-              caseName={r.caseName ?? r.caseId}
+              caseName={r.caseName}
               status={r.status}
               score={r.score}
               reasoning={r.reasoning}
+              rawResponse={r.rawResponse}
               latencyMs={r.latencyMs}
+              pipelineTrace={r.pipelineTrace}
+              failureStep={r.failureStep}
+              errorDetail={r.errorDetail}
               isNew={recentlyCompleted.has(r.caseId)}
             />
           ))}
         </section>
       )}
 
-      <section className="flex flex-col gap-3">
+      {/* Comparison controls */}
+      {compareSelection.size > 0 && (
+        <div className="flex items-center gap-3 bg-blue-900/20 border border-blue-700/40 rounded-lg px-4 py-3">
+          <span className="text-sm text-blue-300">
+            {compareSelection.size === 1 ? 'Select one more run to compare' : '2 runs selected'}
+          </span>
+          {compareSelection.size === 2 && (
+            <Button
+              onClick={runComparison}
+              loading={comparing}
+              disabled={comparing}
+            >
+              Compare
+            </Button>
+          )}
+          <button
+            className="text-xs text-muted hover:text-gray-300 ml-auto"
+            onClick={() => { setCompareSelection(new Set()); setCompareResult(null); }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Comparison result */}
+      {compareResult && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wide">
+            Comparison — {runLabel(compareResult.runA)} vs {runLabel(compareResult.runB)}
+          </h2>
+          <div className="bg-surface-raised border border-border rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-muted text-xs uppercase tracking-wide">
+                  <th className="text-left px-4 py-2">Case</th>
+                  <th className="text-center px-4 py-2">{runLabel(compareResult.runA)}</th>
+                  <th className="text-center px-4 py-2">{runLabel(compareResult.runB)}</th>
+                  <th className="text-center px-4 py-2">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {compareResult.cases.map((c) => (
+                  <tr key={c.caseId} className="border-b border-border last:border-0">
+                    <td className="px-4 py-2 text-gray-300">{c.caseName}</td>
+                    <td className="px-4 py-2 text-center">
+                      <StatusDot status={c.runAStatus} />
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <StatusDot status={c.runBStatus} />
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <ChangeBadge change={c.change} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      <section className="flex flex-col gap-4">
         <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wide">Past runs</h2>
-        {!runs?.filter((r) => r.status !== 'running' && r.status !== 'pending').length ? (
+        {pastRuns.length === 0 ? (
           <EmptyState title="No runs yet" description="Click 'Run evals' to start." />
         ) : (
-          <div className="flex flex-col gap-2">
-            {runs.filter((run) => run.status !== 'running' && run.status !== 'pending').map((run) => (
-              <button
-                key={run.id}
-                onClick={() => setSelectedRunId(selectedRunId === run.id ? null : run.id)}
-                className="text-left bg-surface-raised border border-border rounded-xl p-4
-                  hover:border-border/80 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="relative inline-flex items-center">
-                      {(run.status === 'running' || run.status === 'pending') && (
-                        <span className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-green-400 animate-ping opacity-75" />
-                      )}
-                      <Badge variant={run.status === 'completed' ? 'success' : run.status === 'failed' ? 'error' : 'default'}>
-                        {run.status}
-                      </Badge>
-                    </span>
-                    <span className="text-sm text-gray-300">
-                      {run.passedCases}/{run.totalCases} passed
-                    </span>
-                  </div>
-                  <span className="text-xs text-muted">
-                    {new Date(run.startedAt).toLocaleString()}
+          versionGroups.map((group) => (
+            <div key={group.versionId ?? 'legacy'} className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-blue-400/80 bg-blue-900/20 border border-blue-700/30 rounded px-1.5 py-0.5">
+                  {group.versionNumber != null ? `v${group.versionNumber}` : 'Legacy'}
+                </span>
+                <span className="text-xs text-muted">{group.runs.length} run{group.runs.length !== 1 ? 's' : ''}</span>
+                {group.versionId != null && (
+                  <span className="text-xs text-muted ml-auto">
+                    {compareSelection.size < 2 || [...compareSelection].every((rid) => group.runs.some((r) => r.id === rid))
+                      ? 'Tick two runs to compare'
+                      : ''}
                   </span>
-                </div>
-                {selectedRunId === run.id && !!runDetail && (
-                  <div className="mt-4 flex flex-col gap-2">
-                    {((runDetail as { results: LiveResult[] }).results ?? []).map((r) => (
-                      <EvalResultCard
-                        key={r.caseId}
-                        caseId={r.caseId}
-                        caseName={(r as { caseName?: string }).caseName ?? r.caseId}
-                        status={r.status}
-                        score={r.score}
-                        reasoning={r.reasoning}
-                        latencyMs={r.latencyMs}
-                      />
-                    ))}
-                  </div>
                 )}
-              </button>
-            ))}
-          </div>
+              </div>
+              {group.runs.map((run) => {
+                const isSelected = compareSelection.has(run.id);
+                const crossVersion =
+                  compareSelection.size === 1 &&
+                  !compareSelection.has(run.id) &&
+                  (() => {
+                    const existingId = [...compareSelection][0];
+                    const existingRun = runs?.find((r) => r.id === existingId);
+                    return existingRun?.evalSuiteVersionId !== run.evalSuiteVersionId;
+                  })();
+
+                return (
+                  <div
+                    key={run.id}
+                    className={`bg-surface-raised border rounded-xl transition-colors ${
+                      isSelected ? 'border-blue-600' : crossVersion ? 'border-border opacity-40' : 'border-border'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      {group.versionId != null && (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={crossVersion}
+                          onChange={() => toggleCompareSelection(run.id, run.evalSuiteVersionId ?? null)}
+                          className="accent-blue-500 cursor-pointer"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      )}
+                      <button
+                        className="flex-1 flex items-center justify-between text-left"
+                        onClick={() => {
+                          if (!comparing) setSelectedRunId(selectedRunId === run.id ? null : run.id);
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Badge variant={run.status === 'completed' ? 'success' : run.status === 'failed' ? 'error' : 'default'}>
+                            {run.status}
+                          </Badge>
+                          <span className="text-sm text-gray-300 font-medium">{runLabel(run)}</span>
+                          <span className="text-sm text-muted">{run.passedCases}/{run.totalCases} passed</span>
+                          <span className="text-xs text-muted">({passRate(run)}%)</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {run.snapshotModel && (
+                            <span className="text-xs text-muted hidden sm:block">{run.snapshotModel}</span>
+                          )}
+                          <span className="text-xs text-muted">
+                            {new Date(run.startedAt).toLocaleString()}
+                          </span>
+                          <span className="text-muted text-xs">{selectedRunId === run.id ? '▾' : '▸'}</span>
+                        </div>
+                      </button>
+                    </div>
+
+                    {selectedRunId === run.id && !!runDetail && (
+                      <div className="px-4 pb-4 flex flex-col gap-2 border-t border-border pt-3">
+                        {runDetail.snapshotSystemPrompt && (
+                          <div className="mb-2">
+                            <p className="text-xs text-muted uppercase tracking-wide mb-1">System prompt at run time</p>
+                            <pre className="text-xs text-gray-400 bg-surface-overlay rounded-lg p-3 overflow-auto max-h-24 whitespace-pre-wrap">
+                              {runDetail.snapshotSystemPrompt}
+                            </pre>
+                          </div>
+                        )}
+                        {runDetail.results.map((r) => (
+                          <EvalResultCard
+                            key={r.caseId}
+                            caseId={r.caseId}
+                            caseName={r.caseName}
+                            status={r.status}
+                            score={r.score}
+                            reasoning={r.reasoning}
+                            rawResponse={r.rawResponse}
+                            latencyMs={r.latencyMs}
+                            pipelineTrace={r.pipelineTrace}
+                            failureStep={r.failureStep}
+                            errorDetail={r.errorDetail}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))
         )}
       </section>
     </div>
   );
+}
+
+function StatusDot({ status }: { status: string }) {
+  if (status === 'passed') return <span className="text-green-400">✓</span>;
+  if (status === 'not_executed') return <span className="text-muted">—</span>;
+  return <span className="text-red-400">✗</span>;
+}
+
+function ChangeBadge({ change }: { change: string }) {
+  if (change === 'improved') return <span className="text-green-400 text-xs font-medium">improved</span>;
+  if (change === 'regressed') return <span className="text-red-400 text-xs font-medium">regressed</span>;
+  if (change === 'both_passed') return <span className="text-muted text-xs">—</span>;
+  return <span className="text-muted text-xs">both failed</span>;
 }
