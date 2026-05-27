@@ -15,6 +15,12 @@ interface EvalResultCardProps {
   failureStep?: FailureStep | null;
   errorDetail?: string | null;
   isNew?: boolean;
+  agentModel?: string | null;
+  agentProviderName?: string | null;
+  agentEndpointUrl?: string | null;
+  judgeModel?: string | null;
+  judgeProviderName?: string | null;
+  currentStep?: { step: 'agent' | 'judge'; model: string; providerName: string } | null;
 }
 
 const statusBadge: Record<EvalResultStatus, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
@@ -48,9 +54,17 @@ export function EvalResultCard({
   failureStep,
   errorDetail,
   isNew,
+  agentModel,
+  agentProviderName,
+  agentEndpointUrl,
+  judgeModel,
+  judgeProviderName,
+  currentStep,
 }: EvalResultCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [showTrace, setShowTrace] = useState(false);
+
+  const hasStepInfo = !!(agentModel || judgeModel);
 
   return (
     <div
@@ -75,6 +89,12 @@ export function EvalResultCard({
           {failureStep && (
             <span className="text-xs text-red-400/80 shrink-0">{failureStepLabel[failureStep]}</span>
           )}
+          {status === 'running' && currentStep && (
+            <span className="text-xs text-muted shrink-0">
+              ▶ {currentStep.step === 'agent' ? 'Agent' : 'Judge'}{' '}
+              <span className="text-gray-400">{currentStep.providerName} · {currentStep.model}</span>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3 shrink-0 ml-3">
           {score != null && (
@@ -89,6 +109,41 @@ export function EvalResultCard({
 
       {expanded && (
         <div className="px-4 pb-4 flex flex-col gap-3 border-t border-border">
+          {hasStepInfo && (
+            <div className="mt-3">
+              <p className="text-xs text-muted uppercase tracking-wide mb-2">Steps</p>
+              <div className="flex flex-col gap-1.5">
+                {agentModel && (
+                  <div className="flex items-start gap-3 text-xs">
+                    <span className="text-gray-500 w-10 shrink-0 pt-0.5">Agent</span>
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="text-gray-300">
+                        <span className="text-muted">{agentProviderName}</span>
+                        {agentProviderName && ' · '}
+                        <span className="font-mono">{agentModel}</span>
+                        {latencyMs != null && <span className="text-muted ml-2">{latencyMs}ms</span>}
+                      </span>
+                      {agentEndpointUrl && (
+                        <span className="text-muted font-mono truncate">{agentEndpointUrl}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {judgeModel && (
+                  <div className="flex items-start gap-3 text-xs">
+                    <span className="text-gray-500 w-10 shrink-0 pt-0.5">Judge</span>
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="text-gray-300">
+                        <span className="text-muted">{judgeProviderName}</span>
+                        {judgeProviderName && ' · '}
+                        <span className="font-mono">{judgeModel}</span>
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           {errorDetail && (
             <div className="mt-3">
               <p className="text-xs text-muted uppercase tracking-wide mb-1">Error</p>

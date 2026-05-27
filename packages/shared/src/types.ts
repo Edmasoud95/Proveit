@@ -77,6 +77,8 @@ export interface EvalRun {
   evalSuiteVersionNumber?: number | null;
   snapshotModel: string;
   snapshotEndpointUrl: string;
+  snapshotJudgeModel: string;
+  snapshotJudgeProviderName: string;
 }
 
 export interface EvalResultDetail {
@@ -136,6 +138,32 @@ export interface LlmConnection {
   lastCheckedAt?: string;
 }
 
+export interface LlmProvider {
+  id: string;
+  pocConfigId: string;
+  name: string;
+  isDefault: boolean;
+  endpointUrl: string;
+  model: string;
+  isActive: boolean;
+  lastCheckedAt?: string;
+  availableModels?: string[];
+}
+
+export type TaskType = 'agent' | 'judge' | 'eval-gen' | 'stub-gen';
+
+export interface TaskModelOverride {
+  taskType: TaskType;
+  connectionId: string;
+  providerName: string;
+  model: string;
+}
+
+export interface LlmRoutingConfig {
+  providers: LlmProvider[];
+  overrides: TaskModelOverride[];
+}
+
 export interface LlmConnectionTestResult {
   status: 'connected' | 'failed';
   models?: string[];
@@ -160,6 +188,19 @@ export interface EvalCaseCompleteEvent {
   pipelineTrace: PipelineStep[] | null;
   failureStep: FailureStep | null;
   errorDetail: string | null;
+  agentModel: string;
+  agentProviderName: string;
+  agentEndpointUrl: string;
+  judgeModel: string | null;
+  judgeProviderName: string | null;
+}
+
+export interface EvalStepUpdateEvent {
+  caseId: string;
+  step: 'agent' | 'judge';
+  model: string;
+  providerName: string;
+  endpointUrl?: string;
 }
 
 export interface EvalRunCompleteEvent {

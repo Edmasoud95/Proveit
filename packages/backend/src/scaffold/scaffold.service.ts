@@ -76,7 +76,7 @@ export class ScaffoldService {
           })),
         },
       },
-      include: { evalCases: true, llmConnection: true },
+      include: { evalCases: true, llmConnections: true },
     });
 
     return poc;

@@ -49,7 +49,7 @@ export class PocService {
       where: { id },
       include: {
         evalCases: { orderBy: { order: 'asc' } },
-        llmConnection: true,
+        llmConnections: true,
       },
     });
     if (!poc) throw new NotFoundException('POC not found');
@@ -74,7 +74,7 @@ export class PocService {
         ...(dto.systemPrompt !== undefined && { systemPrompt: dto.systemPrompt }),
         ...(dto.tools !== undefined && { tools: JSON.stringify(dto.tools) }),
       },
-      include: { evalCases: true, llmConnection: true },
+      include: { evalCases: true, llmConnections: true },
     });
   }
 

@@ -9,7 +9,7 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "paths": {
-      "@proveit/shared": ["../shared/src/index"]
+      "@proveit/shared": ["../shared/dist/index"]
     }
   },
   "include": ["src/**/*"],

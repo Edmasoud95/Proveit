@@ -1,6 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateProviderDto } from './dto/create-provider.dto';
+import { UpdateProviderDto } from './dto/update-provider.dto';
+import type { LlmProvider, LlmRoutingConfig, TaskModelOverride, TaskType } from '@proveit/shared';
+
+const VALID_TASK_TYPES: TaskType[] = ['agent', 'judge', 'eval-gen', 'stub-gen'];
 
 @Injectable()
 export class LlmService {
@@ -13,39 +18,197 @@ export class LlmService {
     });
   }
 
-  async upsert(pocId: string, endpointUrl: string, model: string, apiKey?: string) {
-    return this.prisma.llmConnection.upsert({
+  // ─── Provider CRUD ────────────────────────────────────────────────────────
+
+  async listProviders(pocId: string): Promise<LlmProvider[]> {
+    const conns = await this.prisma.llmConnection.findMany({
       where: { pocConfigId: pocId },
-      create: { pocConfigId: pocId, endpointUrl, model, apiKey },
-      update: { endpointUrl, model, apiKey, isActive: false },
+      orderBy: { isDefault: 'desc' },
     });
+    return conns.map((c) => this.toProvider(c));
   }
 
-  async test(pocId: string) {
-    const conn = await this.prisma.llmConnection.findUnique({ where: { pocConfigId: pocId } });
-    if (!conn) throw new NotFoundException('No LLM connection configured');
+  async createProvider(pocId: string, dto: CreateProviderDto): Promise<LlmProvider> {
+    const existingCount = await this.prisma.llmConnection.count({ where: { pocConfigId: pocId } });
+    const conn = await this.prisma.llmConnection.create({
+      data: {
+        pocConfigId: pocId,
+        name: dto.name,
+        endpointUrl: dto.endpointUrl,
+        apiKey: dto.apiKey,
+        model: dto.model,
+        isDefault: existingCount === 0,
+      },
+    });
+    return this.toProvider(conn);
+  }
+
+  async updateProvider(pocId: string, id: string, dto: UpdateProviderDto): Promise<LlmProvider> {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { id, pocConfigId: pocId } });
+    if (!conn) throw new NotFoundException('Provider not found');
+    const updated = await this.prisma.llmConnection.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.endpointUrl !== undefined && { endpointUrl: dto.endpointUrl, isActive: false }),
+        ...(dto.apiKey !== undefined && { apiKey: dto.apiKey, isActive: false }),
+        ...(dto.model !== undefined && { model: dto.model }),
+      },
+    });
+    return this.toProvider(updated);
+  }
+
+  async deleteProvider(pocId: string, id: string): Promise<void> {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { id, pocConfigId: pocId } });
+    if (!conn) throw new NotFoundException('Provider not found');
+    if (conn.isDefault) {
+      const otherCount = await this.prisma.llmConnection.count({
+        where: { pocConfigId: pocId, id: { not: id } },
+      });
+      if (otherCount > 0) {
+        throw new BadRequestException({
+          error: 'CANNOT_DELETE_DEFAULT',
+          message: 'Designate another provider as default before deleting this one.',
+        });
+      }
+    }
+    await this.prisma.llmConnection.delete({ where: { id } });
+  }
+
+  async testProvider(pocId: string, id: string) {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { id, pocConfigId: pocId } });
+    if (!conn) throw new NotFoundException('Provider not found');
 
     const client = this.getClient(conn.endpointUrl, conn.apiKey ?? undefined);
     const start = Date.now();
-
     try {
       const response = await client.models.list();
       const models = response.data.map((m) => m.id);
       const latencyMs = Date.now() - start;
-
       await this.prisma.llmConnection.update({
-        where: { pocConfigId: pocId },
-        data: { isActive: true, lastCheckedAt: new Date() },
+        where: { id },
+        data: { isActive: true, lastCheckedAt: new Date(), availableModels: JSON.stringify(models) },
       });
-
       return { status: 'connected' as const, models, latencyMs };
     } catch (err: unknown) {
       const error = err instanceof Error ? err.message : 'Connection failed';
       await this.prisma.llmConnection.update({
-        where: { pocConfigId: pocId },
+        where: { id },
         data: { isActive: false, lastCheckedAt: new Date() },
       });
       return { status: 'failed' as const, error };
+    }
+  }
+
+  async setDefault(pocId: string, id: string): Promise<LlmProvider> {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { id, pocConfigId: pocId } });
+    if (!conn) throw new NotFoundException('Provider not found');
+    await this.prisma.$transaction([
+      this.prisma.llmConnection.updateMany({
+        where: { pocConfigId: pocId },
+        data: { isDefault: false },
+      }),
+      this.prisma.llmConnection.update({ where: { id }, data: { isDefault: true } }),
+    ]);
+    return this.toProvider({ ...conn, isDefault: true });
+  }
+
+  // ─── Routing ──────────────────────────────────────────────────────────────
+
+  async getRouting(pocId: string): Promise<LlmRoutingConfig> {
+    const [providers, overrideRows] = await Promise.all([
+      this.listProviders(pocId),
+      this.prisma.taskModelOverride.findMany({
+        where: { pocConfigId: pocId },
+        include: { connection: true },
+      }),
+    ]);
+    const overrides: TaskModelOverride[] = overrideRows.map((o) => ({
+      taskType: o.taskType as TaskType,
+      connectionId: o.connectionId,
+      providerName: o.connection.name,
+      model: o.model,
+    }));
+    return { providers, overrides };
+  }
+
+  async setTaskOverride(pocId: string, taskType: string, connectionId: string, model: string): Promise<TaskModelOverride> {
+    if (!VALID_TASK_TYPES.includes(taskType as TaskType)) {
+      throw new BadRequestException({ error: 'INVALID_TASK_TYPE', message: `taskType must be one of: ${VALID_TASK_TYPES.join(', ')}` });
+    }
+    const conn = await this.prisma.llmConnection.findFirst({ where: { id: connectionId, pocConfigId: pocId } });
+    if (!conn) {
+      throw new BadRequestException({ error: 'PROVIDER_NOT_IN_POC', message: 'Provider does not belong to this POC.' });
+    }
+    await this.prisma.taskModelOverride.upsert({
+      where: { pocConfigId_taskType: { pocConfigId: pocId, taskType } },
+      create: { pocConfigId: pocId, taskType, connectionId, model },
+      update: { connectionId, model },
+    });
+    return { taskType: taskType as TaskType, connectionId, providerName: conn.name, model };
+  }
+
+  async clearTaskOverride(pocId: string, taskType: string): Promise<void> {
+    await this.prisma.taskModelOverride.deleteMany({ where: { pocConfigId: pocId, taskType } });
+  }
+
+  async resolveForTask(pocId: string, taskType: TaskType): Promise<{ client: OpenAI; model: string; connectionId: string; providerName: string; endpointUrl: string }> {
+    const override = await this.prisma.taskModelOverride.findUnique({
+      where: { pocConfigId_taskType: { pocConfigId: pocId, taskType } },
+      include: { connection: true },
+    });
+    const conn = override?.connection ?? await this.prisma.llmConnection.findFirst({ where: { pocConfigId: pocId, isDefault: true } });
+    if (!conn) throw new NotFoundException('No default LLM provider configured. Add a provider on the LLM Settings page.');
+    const model = override ? override.model : conn.model;
+    return {
+      client: this.getClient(conn.endpointUrl, conn.apiKey ?? undefined),
+      model,
+      connectionId: conn.id,
+      providerName: conn.name,
+      endpointUrl: conn.endpointUrl,
+    };
+  }
+
+  // ─── Routing: get active routing for a task without throwing ──────────────
+
+  // ─── Legacy shims (backward compatibility) ────────────────────────────────
+
+  async upsert(pocId: string, endpointUrl: string, model: string, apiKey?: string) {
+    const existing = await this.prisma.llmConnection.findFirst({ where: { pocConfigId: pocId, isDefault: true } });
+    if (existing) {
+      return this.prisma.llmConnection.update({
+        where: { id: existing.id },
+        data: { endpointUrl, model, apiKey: apiKey ?? existing.apiKey, isActive: false },
+      });
+    }
+    return this.prisma.llmConnection.create({
+      data: { pocConfigId: pocId, name: 'Default', isDefault: true, endpointUrl, model, apiKey },
+    });
+  }
+
+  async test(pocId: string) {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { pocConfigId: pocId, isDefault: true } });
+    if (!conn) throw new NotFoundException('No LLM connection configured');
+    return this.testProvider(pocId, conn.id);
+  }
+
+  async getConnection(pocId: string) {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { pocConfigId: pocId, isDefault: true } });
+    if (!conn) return null;
+    const { apiKey: _key, name: _name, isDefault: _def, availableModels: _am, ...safe } = conn;
+    return safe;
+  }
+
+  async getModels(pocId: string) {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { pocConfigId: pocId, isDefault: true } });
+    if (!conn) throw new NotFoundException('No LLM connection configured');
+    const client = this.getClient(conn.endpointUrl, conn.apiKey ?? undefined);
+    try {
+      const response = await client.models.list();
+      return { models: response.data.map((m) => m.id) };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch models';
+      throw new NotFoundException(message);
     }
   }
 
@@ -60,25 +223,19 @@ export class LlmService {
     }
   }
 
-  async getModels(pocId: string) {
-    const conn = await this.prisma.llmConnection.findUnique({ where: { pocConfigId: pocId } });
-    if (!conn) throw new NotFoundException('No LLM connection configured');
+  // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    const client = this.getClient(conn.endpointUrl, conn.apiKey ?? undefined);
-    try {
-      const response = await client.models.list();
-      return { models: response.data.map((m) => m.id) };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch models';
-      throw new NotFoundException(message);
-    }
-  }
-
-  async getConnection(pocId: string) {
-    const conn = await this.prisma.llmConnection.findUnique({ where: { pocConfigId: pocId } });
-    if (!conn) return null;
-    // Never expose API key
-    const { apiKey: _key, ...safe } = conn;
-    return safe;
+  private toProvider(conn: { id: string; pocConfigId: string; name: string; isDefault: boolean; endpointUrl: string; model: string; isActive: boolean; lastCheckedAt: Date | null; availableModels: string | null }): LlmProvider {
+    return {
+      id: conn.id,
+      pocConfigId: conn.pocConfigId,
+      name: conn.name,
+      isDefault: conn.isDefault,
+      endpointUrl: conn.endpointUrl,
+      model: conn.model,
+      isActive: conn.isActive,
+      lastCheckedAt: conn.lastCheckedAt?.toISOString(),
+      availableModels: conn.availableModels ? JSON.parse(conn.availableModels) : undefined,
+    };
   }
 }

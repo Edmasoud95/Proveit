@@ -25,7 +25,7 @@ interface ToolDefinition {
 }
 
 export interface EvalSseEvent {
-  type: 'case-start' | 'case-complete' | 'run-complete' | 'error';
+  type: 'case-start' | 'case-complete' | 'run-complete' | 'error' | 'step-update';
   data: Record<string, unknown>;
 }
 
@@ -140,7 +140,7 @@ export class EvalService implements OnModuleInit {
   async startRun(pocId: string): Promise<{ runId: string; totalCases: number; status: string }> {
     const [cases, poc, latestVersion] = await Promise.all([
       this.prisma.evalCase.findMany({ where: { pocConfigId: pocId } }),
-      this.prisma.pocConfig.findUnique({ where: { id: pocId }, include: { llmConnection: true } }),
+      this.prisma.pocConfig.findUnique({ where: { id: pocId } }),
       this.prisma.evalSuiteVersion.findFirst({
         where: { pocConfigId: pocId },
         orderBy: { versionNumber: 'desc' },
@@ -154,6 +154,21 @@ export class EvalService implements OnModuleInit {
       _max: { runNumber: true },
     });
 
+    let snapshotModel = '';
+    let snapshotEndpointUrl = '';
+    let snapshotJudgeModel = '';
+    let snapshotJudgeProviderName = '';
+    try {
+      const agentProvider = await this.llmService.resolveForTask(pocId, 'agent');
+      snapshotModel = agentProvider.model;
+      snapshotEndpointUrl = agentProvider.endpointUrl;
+    } catch { /* run will fail in executeRun with a clear error */ }
+    try {
+      const judgeProvider = await this.llmService.resolveForTask(pocId, 'judge');
+      snapshotJudgeModel = judgeProvider.model;
+      snapshotJudgeProviderName = judgeProvider.providerName;
+    } catch { /* non-fatal */ }
+
     const run = await this.prisma.evalRun.create({
       data: {
         pocConfigId: pocId,
@@ -162,8 +177,10 @@ export class EvalService implements OnModuleInit {
         runNumber: (maxRunNumber._max.runNumber ?? 0) + 1,
         evalSuiteVersionId: latestVersion?.id ?? null,
         snapshotSystemPrompt: poc?.systemPrompt ?? '',
-        snapshotModel: poc?.llmConnection?.model ?? '',
-        snapshotEndpointUrl: poc?.llmConnection?.endpointUrl ?? '',
+        snapshotModel,
+        snapshotEndpointUrl,
+        snapshotJudgeModel,
+        snapshotJudgeProviderName,
       },
     });
 
@@ -183,29 +200,52 @@ export class EvalService implements OnModuleInit {
     const subject = this.subscribeToRun(runId);
 
     const [poc, cases] = await Promise.all([
-      this.prisma.pocConfig.findUnique({
-        where: { id: pocId },
-        include: { llmConnection: true },
-      }),
+      this.prisma.pocConfig.findUnique({ where: { id: pocId } }),
       this.prisma.evalCase.findMany({ where: { pocConfigId: pocId }, orderBy: { order: 'asc' } }),
     ]);
 
-    if (!poc?.llmConnection) {
+    if (!poc) {
+      subject.error(new Error('POC not found'));
+      return;
+    }
+
+    let agentClient: import('openai').default;
+    let agentModel: string;
+    let agentProviderName: string;
+    let agentEndpointUrl: string;
+    try {
+      const agentProvider = await this.llmService.resolveForTask(pocId, 'agent');
+      agentClient = agentProvider.client;
+      agentModel = agentProvider.model;
+      agentProviderName = agentProvider.providerName;
+      agentEndpointUrl = agentProvider.endpointUrl;
+    } catch (err) {
       await this.prisma.evalRun.update({
         where: { id: runId },
         data: { status: 'failed', completedAt: new Date() },
       });
-      subject.error(new Error('No LLM connection configured'));
+      subject.error(err instanceof Error ? err : new Error('No LLM provider configured'));
+      return;
+    }
+
+    let judgeClient: import('openai').default;
+    let judgeModel: string;
+    let judgeProviderName: string;
+    try {
+      const judgeProvider = await this.llmService.resolveForTask(pocId, 'judge');
+      judgeClient = judgeProvider.client;
+      judgeModel = judgeProvider.model;
+      judgeProviderName = judgeProvider.providerName;
+    } catch (err) {
+      await this.prisma.evalRun.update({
+        where: { id: runId },
+        data: { status: 'failed', completedAt: new Date() },
+      });
+      subject.error(err instanceof Error ? err : new Error('No judge LLM provider configured'));
       return;
     }
 
     await this.prisma.evalRun.update({ where: { id: runId }, data: { status: 'running' } });
-
-    const client = this.llmService.getClient(
-      poc.llmConnection.endpointUrl,
-      poc.llmConnection.apiKey ?? undefined,
-    );
-    const model = poc.llmConnection.model;
 
     let passed = 0;
     let failed = 0;
@@ -217,10 +257,15 @@ export class EvalService implements OnModuleInit {
         const input = JSON.parse(evalCase.input) as { messages: unknown[] };
         const start = Date.now();
 
+        subject.next({
+          type: 'step-update',
+          data: { caseId: evalCase.id, step: 'agent', model: agentModel, providerName: agentProviderName, endpointUrl: agentEndpointUrl },
+        });
+
         const pocTools: ToolDefinition[] = JSON.parse(poc.tools);
         const { response: agentResponse, history } = await this.callAgent(
-          client,
-          model,
+          agentClient,
+          agentModel,
           poc.systemPrompt,
           input.messages,
           pocTools,
@@ -229,9 +274,14 @@ export class EvalService implements OnModuleInit {
 
         const pipelineTrace = this.serializePipelineTrace(history);
 
+        subject.next({
+          type: 'step-update',
+          data: { caseId: evalCase.id, step: 'judge', model: judgeModel, providerName: judgeProviderName },
+        });
+
         const verdict = await this.judgeService.judge(
-          client,
-          model,
+          judgeClient,
+          judgeModel,
           evalCase.input,
           evalCase.judgeCriteria,
           agentResponse,
@@ -268,6 +318,11 @@ export class EvalService implements OnModuleInit {
             pipelineTrace: pipelineTrace ? JSON.parse(pipelineTrace) : null,
             failureStep: verdict.failureStep ?? null,
             errorDetail: null,
+            agentModel,
+            agentProviderName,
+            agentEndpointUrl,
+            judgeModel,
+            judgeProviderName,
           },
         });
       } catch (err: unknown) {
@@ -294,6 +349,11 @@ export class EvalService implements OnModuleInit {
             pipelineTrace: null,
             failureStep: null,
             errorDetail,
+            agentModel,
+            agentProviderName,
+            agentEndpointUrl,
+            judgeModel: null,
+            judgeProviderName: null,
           },
         });
       }
@@ -434,6 +494,8 @@ export class EvalService implements OnModuleInit {
       snapshotSystemPrompt: run.snapshotSystemPrompt,
       snapshotModel: run.snapshotModel,
       snapshotEndpointUrl: run.snapshotEndpointUrl,
+      snapshotJudgeModel: run.snapshotJudgeModel,
+      snapshotJudgeProviderName: run.snapshotJudgeProviderName,
       results: run.results.map((r) => ({
         caseId: r.evalCaseId,
         caseName: r.evalCase.name,
@@ -579,20 +641,12 @@ export class EvalService implements OnModuleInit {
   // ─── Generation ────────────────────────────────────────────────────────────
 
   async generateCases(pocId: string, count: number = 5, toolFocused: boolean = false) {
-    const poc = await this.prisma.pocConfig.findUnique({
-      where: { id: pocId },
-      include: { llmConnection: true },
-    });
+    const poc = await this.prisma.pocConfig.findUnique({ where: { id: pocId } });
     if (!poc) throw new NotFoundException('POC not found');
-    if (!poc.llmConnection) throw new BadRequestException('Connect an LLM first');
-    if (!poc.llmConnection.model?.trim()) {
-      throw new BadRequestException('No model selected — set a model in LLM Settings first');
-    }
 
-    const client = this.llmService.getClient(
-      poc.llmConnection.endpointUrl,
-      poc.llmConnection.apiKey ?? undefined,
-    );
+    const { client, model } = await this.llmService.resolveForTask(pocId, 'eval-gen').catch(() => {
+      throw new BadRequestException('No default LLM provider configured. Add a provider on the LLM Settings page.');
+    });
 
     const tools: ToolDefinition[] = JSON.parse(poc.tools);
 
@@ -604,7 +658,7 @@ export class EvalService implements OnModuleInit {
       : buildGenerateEvalsUserPrompt(poc.systemPrompt, poc.tools, count);
 
     const response = await client.chat.completions.create({
-      model: poc.llmConnection.model,
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -628,12 +682,8 @@ export class EvalService implements OnModuleInit {
   }
 
   async generateStubs(pocId: string, overwrite: boolean) {
-    const poc = await this.prisma.pocConfig.findUnique({
-      where: { id: pocId },
-      include: { llmConnection: true },
-    });
+    const poc = await this.prisma.pocConfig.findUnique({ where: { id: pocId } });
     if (!poc) throw new NotFoundException('POC not found');
-    if (!poc.llmConnection) throw new BadRequestException('No LLM connection configured');
 
     const tools: ToolDefinition[] = JSON.parse(poc.tools);
     if (tools.length === 0) throw new BadRequestException('No tools defined on this POC');
@@ -645,22 +695,17 @@ export class EvalService implements OnModuleInit {
       return { generated: [], skipped, failed: [] };
     }
 
-    if (!poc.llmConnection.model?.trim()) {
-      throw new BadRequestException('No model selected — set a model in LLM Settings first');
-    }
-
-    const client = this.llmService.getClient(
-      poc.llmConnection.endpointUrl,
-      poc.llmConnection.apiKey ?? undefined,
-    );
+    const { client, model } = await this.llmService.resolveForTask(pocId, 'stub-gen').catch(() => {
+      throw new BadRequestException('No default LLM provider configured. Add a provider on the LLM Settings page.');
+    });
 
     const userPrompt = buildGenerateStubsUserPrompt(toolsToGenerate);
-    console.log('[generateStubs] model:', poc.llmConnection.model);
+    console.log('[generateStubs] model:', model);
     console.log('[generateStubs] tools to generate:', toolsToGenerate.map((t) => t.name));
     console.log('[generateStubs] user prompt:\n', userPrompt);
 
     const response = await client.chat.completions.create({
-      model: poc.llmConnection.model,
+      model,
       messages: [
         { role: 'system', content: buildGenerateStubsSystemPrompt() },
         { role: 'user', content: userPrompt },

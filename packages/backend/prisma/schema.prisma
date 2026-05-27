@@ -18,7 +18,8 @@ model PocConfig {
   updatedAt    DateTime @updatedAt
 
   evalCases          EvalCase[]
-  llmConnection      LlmConnection?
+  llmConnections     LlmConnection[]
+  taskModelOverrides TaskModelOverride[]
   evalRuns           EvalRun[]
   evalSuiteVersions  EvalSuiteVersion[]
 }
@@ -56,15 +57,34 @@ model EvalResult {
 }
 
 model LlmConnection {
-  id            String   @id @default(uuid())
-  pocConfigId   String   @unique
-  endpointUrl   String
-  apiKey        String?
-  model         String
-  isActive      Boolean  @default(false)
-  lastCheckedAt DateTime?
+  id              String    @id @default(uuid())
+  pocConfigId     String
+  name            String    @default("Default")
+  isDefault       Boolean   @default(false)
+  endpointUrl     String
+  apiKey          String?
+  model           String
+  isActive        Boolean   @default(false)
+  lastCheckedAt   DateTime?
+  availableModels String?
 
-  pocConfig PocConfig @relation(fields: [pocConfigId], references: [id], onDelete: Cascade)
+  pocConfig          PocConfig           @relation(fields: [pocConfigId], references: [id], onDelete: Cascade)
+  taskModelOverrides TaskModelOverride[]
+
+  @@index([pocConfigId])
+}
+
+model TaskModelOverride {
+  id           String @id @default(uuid())
+  pocConfigId  String
+  taskType     String
+  connectionId String
+  model        String
+
+  pocConfig  PocConfig     @relation(fields: [pocConfigId], references: [id], onDelete: Cascade)
+  connection LlmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([pocConfigId, taskType])
 }
 
 model EvalRun {
@@ -79,9 +99,11 @@ model EvalRun {
 
   runNumber            Int       @default(0)
   evalSuiteVersionId   String?
-  snapshotSystemPrompt String    @default("")
-  snapshotModel        String    @default("")
-  snapshotEndpointUrl  String    @default("")
+  snapshotSystemPrompt      String    @default("")
+  snapshotModel             String    @default("")
+  snapshotEndpointUrl       String    @default("")
+  snapshotJudgeModel        String    @default("")
+  snapshotJudgeProviderName String    @default("")
 
   pocConfig        PocConfig          @relation(fields: [pocConfigId], references: [id], onDelete: Cascade)
   evalSuiteVersion EvalSuiteVersion?  @relation(fields: [evalSuiteVersionId], references: [id], onDelete: SetNull)

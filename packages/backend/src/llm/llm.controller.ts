@@ -1,5 +1,8 @@
-import { Controller, Put, Post, Get, Body, Param } from '@nestjs/common';
+import { Controller, Put, Post, Get, Patch, Delete, Body, Param, HttpCode } from '@nestjs/common';
 import { LlmService } from './llm.service';
+import { CreateProviderDto } from './dto/create-provider.dto';
+import { UpdateProviderDto } from './dto/update-provider.dto';
+import { SetRoutingDto } from './dto/set-routing.dto';
 
 class UpsertLlmDto {
   endpointUrl!: string;
@@ -20,6 +23,63 @@ export class LlmRootController {
 @Controller('pocs/:pocId/llm')
 export class LlmController {
   constructor(private readonly llmService: LlmService) {}
+
+  // ─── Provider CRUD ────────────────────────────────────────────────────────
+
+  @Get('providers')
+  listProviders(@Param('pocId') pocId: string) {
+    return this.llmService.listProviders(pocId);
+  }
+
+  @Post('providers')
+  createProvider(@Param('pocId') pocId: string, @Body() dto: CreateProviderDto) {
+    return this.llmService.createProvider(pocId, dto);
+  }
+
+  @Patch('providers/:id')
+  updateProvider(@Param('pocId') pocId: string, @Param('id') id: string, @Body() dto: UpdateProviderDto) {
+    return this.llmService.updateProvider(pocId, id, dto);
+  }
+
+  @Delete('providers/:id')
+  @HttpCode(204)
+  deleteProvider(@Param('pocId') pocId: string, @Param('id') id: string) {
+    return this.llmService.deleteProvider(pocId, id);
+  }
+
+  @Post('providers/:id/test')
+  testProvider(@Param('pocId') pocId: string, @Param('id') id: string) {
+    return this.llmService.testProvider(pocId, id);
+  }
+
+  @Post('providers/:id/default')
+  setDefault(@Param('pocId') pocId: string, @Param('id') id: string) {
+    return this.llmService.setDefault(pocId, id);
+  }
+
+  // ─── Routing ──────────────────────────────────────────────────────────────
+
+  @Get('routing')
+  getRouting(@Param('pocId') pocId: string) {
+    return this.llmService.getRouting(pocId);
+  }
+
+  @Put('routing/:taskType')
+  setRouting(
+    @Param('pocId') pocId: string,
+    @Param('taskType') taskType: string,
+    @Body() dto: SetRoutingDto,
+  ) {
+    return this.llmService.setTaskOverride(pocId, taskType, dto.connectionId, dto.model);
+  }
+
+  @Delete('routing/:taskType')
+  @HttpCode(204)
+  clearRouting(@Param('pocId') pocId: string, @Param('taskType') taskType: string) {
+    return this.llmService.clearTaskOverride(pocId, taskType);
+  }
+
+  // ─── Legacy shims (backward compatibility) ────────────────────────────────
 
   @Put()
   upsert(@Param('pocId') pocId: string, @Body() dto: UpsertLlmDto) {

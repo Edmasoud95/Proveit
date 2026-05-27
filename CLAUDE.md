@@ -96,6 +96,8 @@ Key backend pattern: `POST /api/pocs/scaffold` is the main entry point — takes
 - SQLite via Prisma 5 — no migration required (tools stored as JSON string in existing `PocConfig.tools` column) (002-tool-stubs)
 - TypeScript 5.x (strict mode), Node.js 20 + NestJS 10 (backend), React 18 + Vite 5 + Tailwind CSS 3 (frontend), OpenAI Node.js SDK, Prisma 5 (003-versioned-eval-runs)
 - SQLite via Prisma 5 — new `EvalSuiteVersion` model + extensions to `EvalRun` and `EvalResult` (003-versioned-eval-runs)
+- TypeScript 5.x (strict mode), Node.js 20 + NestJS 10, Prisma 5, OpenAI Node.js SDK, React 18, TanStack Query 5, Tailwind CSS 3 (004-multi-provider-llm)
+- SQLite via Prisma 5 — schema migration removes `@unique` from `LlmConnection.pocConfigId`, adds `name`/`isDefault`/`availableModels` fields, creates `TaskModelOverride` table (004-multi-provider-llm)
 
 ## Recent Changes
 - 002-tool-stubs: Added TypeScript 5.x (strict mode), Node.js 20 + NestJS 10 (backend), React 18 + Vite 5 + Tailwind CSS 3 (frontend), OpenAI Node.js SDK

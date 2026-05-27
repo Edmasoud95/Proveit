@@ -36,6 +36,25 @@ export interface EvalCase {
 }
 export type EvalResultStatus = 'pending' | 'running' | 'passed' | 'failed' | 'errored';
 export type EvalRunStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type FailureStep = 'wrong_tool' | 'wrong_arguments' | 'wrong_final_response';
+export interface ToolCallStep {
+    id: string;
+    name: string;
+    arguments: string;
+}
+export type PipelineStep = {
+    role: 'user';
+    content: string;
+} | {
+    role: 'assistant';
+    content: string | null;
+    toolCalls?: ToolCallStep[];
+} | {
+    role: 'tool';
+    toolCallId: string;
+    toolName: string;
+    content: string;
+};
 export interface EvalResult {
     id: string;
     evalCaseId: string;
@@ -56,11 +75,55 @@ export interface EvalRun {
     failedCases: number;
     startedAt: string;
     completedAt?: string;
+    runNumber: number;
+    evalSuiteVersionId?: string | null;
+    evalSuiteVersionNumber?: number | null;
+    snapshotModel: string;
+    snapshotEndpointUrl: string;
+    snapshotJudgeModel: string;
+    snapshotJudgeProviderName: string;
+}
+export interface EvalResultDetail {
+    caseId: string;
+    caseName: string;
+    status: EvalResultStatus;
+    score: number | null;
+    reasoning: string | null;
+    rawResponse: string | null;
+    latencyMs: number | null;
+    pipelineTrace: PipelineStep[] | null;
+    errorDetail: string | null;
+    failureStep: FailureStep | null;
 }
 export interface EvalRunDetail extends EvalRun {
-    results: Array<EvalResult & {
-        caseName: string;
-    }>;
+    snapshotSystemPrompt: string;
+    results: EvalResultDetail[];
+}
+export interface EvalSuiteVersionSummary {
+    id: string;
+    versionNumber: number;
+    casesSnapshot: EvalCaseSnapshot[];
+    createdAt: string;
+    runCount: number;
+}
+export interface EvalCaseSnapshot {
+    id: string;
+    name: string;
+    input: string;
+    judgeCriteria: string;
+    order: number;
+}
+export interface RunComparisonCase {
+    caseId: string;
+    caseName: string;
+    runAStatus: EvalResultStatus | 'not_executed';
+    runBStatus: EvalResultStatus | 'not_executed';
+    change: 'improved' | 'regressed' | 'both_passed' | 'both_failed';
+}
+export interface CompareRunsResponse {
+    runA: EvalRun;
+    runB: EvalRun;
+    cases: RunComparisonCase[];
 }
 export interface LlmConnection {
     id: string;
@@ -69,6 +132,28 @@ export interface LlmConnection {
     model: string;
     isActive: boolean;
     lastCheckedAt?: string;
+}
+export interface LlmProvider {
+    id: string;
+    pocConfigId: string;
+    name: string;
+    isDefault: boolean;
+    endpointUrl: string;
+    model: string;
+    isActive: boolean;
+    lastCheckedAt?: string;
+    availableModels?: string[];
+}
+export type TaskType = 'agent' | 'judge' | 'eval-gen' | 'stub-gen';
+export interface TaskModelOverride {
+    taskType: TaskType;
+    connectionId: string;
+    providerName: string;
+    model: string;
+}
+export interface LlmRoutingConfig {
+    providers: LlmProvider[];
+    overrides: TaskModelOverride[];
 }
 export interface LlmConnectionTestResult {
     status: 'connected' | 'failed';
@@ -82,10 +167,27 @@ export interface EvalCaseStartEvent {
 }
 export interface EvalCaseCompleteEvent {
     caseId: string;
+    caseName: string;
     status: EvalResultStatus;
-    score: number;
-    reasoning: string;
-    latencyMs: number;
+    score: number | null;
+    reasoning: string | null;
+    rawResponse: string | null;
+    latencyMs: number | null;
+    pipelineTrace: PipelineStep[] | null;
+    failureStep: FailureStep | null;
+    errorDetail: string | null;
+    agentModel: string;
+    agentProviderName: string;
+    agentEndpointUrl: string;
+    judgeModel: string | null;
+    judgeProviderName: string | null;
+}
+export interface EvalStepUpdateEvent {
+    caseId: string;
+    step: 'agent' | 'judge';
+    model: string;
+    providerName: string;
+    endpointUrl?: string;
 }
 export interface EvalRunCompleteEvent {
     runId: string;

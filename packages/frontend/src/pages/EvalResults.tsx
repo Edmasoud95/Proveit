@@ -6,6 +6,7 @@ import type {
   EvalRunDetail,
   EvalCaseCompleteEvent,
   EvalRunCompleteEvent,
+  EvalStepUpdateEvent,
   PipelineStep,
   FailureStep,
   CompareRunsResponse,
@@ -14,6 +15,7 @@ import { api } from '../services/api';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { EvalResultCard } from '../components/eval/EvalResultCard';
+import { RunConfig } from '../components/eval/RunConfig';
 import { RunProgress } from '../components/eval/RunProgress';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -30,6 +32,12 @@ interface LiveResult {
   pipelineTrace: PipelineStep[] | null;
   failureStep: FailureStep | null;
   errorDetail: string | null;
+  agentModel: string | null;
+  agentProviderName: string | null;
+  agentEndpointUrl: string | null;
+  judgeModel: string | null;
+  judgeProviderName: string | null;
+  currentStep: { step: 'agent' | 'judge'; model: string; providerName: string } | null;
 }
 
 function passRate(run: EvalRun): number {
@@ -125,9 +133,34 @@ export function EvalResults() {
           pipelineTrace: null,
           failureStep: null,
           errorDetail: null,
+          agentModel: null,
+          agentProviderName: null,
+          agentEndpointUrl: null,
+          judgeModel: null,
+          judgeProviderName: null,
+          currentStep: null,
         },
       ]);
       setLiveStats((s) => ({ ...s, total: Math.max(s.total, totalCases) }));
+    });
+
+    es.addEventListener('step-update', (e) => {
+      const data = JSON.parse(e.data) as EvalStepUpdateEvent;
+      setLiveResults((prev) =>
+        prev.map((r) =>
+          r.caseId === data.caseId
+            ? {
+                ...r,
+                currentStep: { step: data.step, model: data.model, providerName: data.providerName },
+                ...(data.step === 'agent' && {
+                  agentModel: data.model,
+                  agentProviderName: data.providerName,
+                  agentEndpointUrl: data.endpointUrl ?? null,
+                }),
+              }
+            : r,
+        ),
+      );
     });
 
     es.addEventListener('case-complete', (e) => {
@@ -145,6 +178,12 @@ export function EvalResults() {
                 pipelineTrace: data.pipelineTrace,
                 failureStep: data.failureStep,
                 errorDetail: data.errorDetail,
+                agentModel: data.agentModel ?? null,
+                agentProviderName: data.agentProviderName ?? null,
+                agentEndpointUrl: data.agentEndpointUrl ?? null,
+                judgeModel: data.judgeModel,
+                judgeProviderName: data.judgeProviderName,
+                currentStep: null,
               }
             : r,
         ),
@@ -281,6 +320,8 @@ export function EvalResults() {
         </div>
       </div>
 
+      {!running && <RunConfig pocId={id!} />}
+
       {running && (
         <Card>
           <RunProgress
@@ -320,6 +361,12 @@ export function EvalResults() {
               failureStep={r.failureStep}
               errorDetail={r.errorDetail}
               isNew={recentlyCompleted.has(r.caseId)}
+              agentModel={r.agentModel}
+              agentProviderName={r.agentProviderName}
+              agentEndpointUrl={r.agentEndpointUrl}
+              judgeModel={r.judgeModel}
+              judgeProviderName={r.judgeProviderName}
+              currentStep={r.currentStep}
             />
           ))}
         </section>
@@ -463,12 +510,41 @@ export function EvalResults() {
 
                     {selectedRunId === run.id && !!runDetail && (
                       <div className="px-4 pb-4 flex flex-col gap-2 border-t border-border pt-3">
-                        {runDetail.snapshotSystemPrompt && (
-                          <div className="mb-2">
-                            <p className="text-xs text-muted uppercase tracking-wide mb-1">System prompt at run time</p>
-                            <pre className="text-xs text-gray-400 bg-surface-overlay rounded-lg p-3 overflow-auto max-h-24 whitespace-pre-wrap">
-                              {runDetail.snapshotSystemPrompt}
-                            </pre>
+                        {(runDetail.snapshotSystemPrompt || runDetail.snapshotModel) && (
+                          <div className="mb-2 flex flex-col gap-2">
+                            {runDetail.snapshotSystemPrompt && (
+                              <div>
+                                <p className="text-xs text-muted uppercase tracking-wide mb-1">System prompt at run time</p>
+                                <pre className="text-xs text-gray-400 bg-surface-overlay rounded-lg p-3 overflow-auto max-h-24 whitespace-pre-wrap">
+                                  {runDetail.snapshotSystemPrompt}
+                                </pre>
+                              </div>
+                            )}
+                            {(runDetail.snapshotModel || runDetail.snapshotJudgeModel) && (
+                              <div>
+                                <p className="text-xs text-muted uppercase tracking-wide mb-1">Models at run time</p>
+                                <div className="flex flex-col gap-1 text-xs">
+                                  {runDetail.snapshotModel && (
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-gray-500 w-10 shrink-0">Agent</span>
+                                      <span className="font-mono text-gray-300">{runDetail.snapshotModel}</span>
+                                      {runDetail.snapshotEndpointUrl && (
+                                        <span className="text-muted font-mono">{runDetail.snapshotEndpointUrl}</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {runDetail.snapshotJudgeModel && (
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-gray-500 w-10 shrink-0">Judge</span>
+                                      {runDetail.snapshotJudgeProviderName && (
+                                        <span className="text-muted">{runDetail.snapshotJudgeProviderName} ·</span>
+                                      )}
+                                      <span className="font-mono text-gray-300">{runDetail.snapshotJudgeModel}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                         {runDetail.results.map((r) => (
@@ -484,6 +560,10 @@ export function EvalResults() {
                             pipelineTrace={r.pipelineTrace}
                             failureStep={r.failureStep}
                             errorDetail={r.errorDetail}
+                            agentModel={runDetail.snapshotModel || null}
+                            agentEndpointUrl={runDetail.snapshotEndpointUrl || null}
+                            judgeModel={runDetail.snapshotJudgeModel || null}
+                            judgeProviderName={runDetail.snapshotJudgeProviderName || null}
                           />
                         ))}
                       </div>
