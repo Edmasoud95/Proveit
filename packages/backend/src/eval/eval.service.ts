@@ -415,7 +415,13 @@ export class EvalService implements OnModuleInit {
         return { response: choice.message.content ?? '', history };
       }
 
-      history.push(choice.message);
+      // Preserve reasoning_content so thinking-mode APIs receive it back on the next turn
+      const rawMsg = choice.message as unknown as Record<string, unknown>;
+      const msgWithReasoning = {
+        ...choice.message,
+        ...(rawMsg['reasoning_content'] ? { reasoning_content: rawMsg['reasoning_content'] } : {}),
+      };
+      history.push(msgWithReasoning as (typeof history)[number]);
 
       for (const toolCall of choice.message.tool_calls) {
         const tool = tools.find((t) => t.name === toolCall.function.name);

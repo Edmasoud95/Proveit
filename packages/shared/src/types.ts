@@ -214,3 +214,55 @@ export interface EvalErrorEvent {
   caseId: string;
   error: string;
 }
+
+// Chat types
+export interface ChatMessageInput {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatStreamTextDelta {
+  type: 'text-delta';
+  delta: string;
+}
+
+export interface ChatStreamReasoningDelta {
+  type: 'reasoning-delta';
+  delta: string;
+}
+
+export interface ChatStreamToolCallStart {
+  type: 'tool-call-start';
+  toolCallId: string;
+  toolName: string;
+}
+
+export interface ChatStreamToolCallArgsDelta {
+  type: 'tool-call-args-delta';
+  toolCallId: string;
+  argsDelta: string;
+}
+
+export interface ChatStreamToolCallResult {
+  type: 'tool-call-result';
+  toolCallId: string;
+  result: string;
+}
+
+export interface ChatStreamDone {
+  type: 'done';
+}
+
+export interface ChatStreamError {
+  type: 'error';
+  message: string;
+}
+
+export type ChatStreamEvent =
+  | ChatStreamTextDelta
+  | ChatStreamReasoningDelta
+  | ChatStreamToolCallStart
+  | ChatStreamToolCallArgsDelta
+  | ChatStreamToolCallResult
+  | ChatStreamDone
+  | ChatStreamError;
