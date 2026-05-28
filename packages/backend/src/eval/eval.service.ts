@@ -17,6 +17,8 @@ import {
   buildGenerateToolDataUserPrompt,
 } from './prompts/generate-tool-data.prompt';
 
+import type { RunMetrics } from '@proveit/shared';
+
 interface ToolDefinition {
   name: string;
   description: string;
@@ -269,7 +271,7 @@ export class EvalService implements OnModuleInit {
         });
 
         const pocTools: ToolDefinition[] = JSON.parse(poc.tools);
-        const { response: agentResponse, history } = await this.callAgent(
+        const { response: agentResponse, history, promptTokens, completionTokens, totalTokens } = await this.callAgent(
           agentClient,
           agentModel,
           poc.systemPrompt,
@@ -308,6 +310,9 @@ export class EvalService implements OnModuleInit {
             latencyMs,
             pipelineTrace,
             failureStep: verdict.failureStep ?? null,
+            promptTokens,
+            completionTokens,
+            totalTokens,
           },
         });
 
@@ -391,7 +396,7 @@ export class EvalService implements OnModuleInit {
     systemPrompt: string,
     messages: unknown[],
     tools: ToolDefinition[],
-  ): Promise<{ response: string; history: OpenAI.Chat.ChatCompletionMessageParam[] }> {
+  ): Promise<{ response: string; history: OpenAI.Chat.ChatCompletionMessageParam[]; promptTokens: number; completionTokens: number; totalTokens: number }> {
     const MAX_ITERATIONS = 10;
 
     const stubbedTools = tools.filter((t) => t.mockResponse);
@@ -407,6 +412,10 @@ export class EvalService implements OnModuleInit {
       ...(messages as Array<{ role: 'user' | 'assistant'; content: string }>),
     ];
 
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let totalTokens = 0;
+
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       const response = await client.chat.completions.create({
         model,
@@ -414,11 +423,15 @@ export class EvalService implements OnModuleInit {
         ...(apiTools ? { tools: apiTools } : {}),
       });
 
+      promptTokens += response.usage?.prompt_tokens ?? 0;
+      completionTokens += response.usage?.completion_tokens ?? 0;
+      totalTokens += response.usage?.total_tokens ?? 0;
+
       const choice = response.choices[0];
 
       if (choice.finish_reason !== 'tool_calls' || !choice.message.tool_calls?.length) {
         history.push({ role: 'assistant', content: choice.message.content ?? '' });
-        return { response: choice.message.content ?? '', history };
+        return { response: choice.message.content ?? '', history, promptTokens, completionTokens, totalTokens };
       }
 
       // Preserve reasoning_content so thinking-mode APIs receive it back on the next turn
@@ -453,6 +466,41 @@ export class EvalService implements OnModuleInit {
     throw new Error('Tool call loop exceeded maximum iterations');
   }
 
+  // ─── Run Metrics ───────────────────────────────────────────────────────────
+
+  private async computeRunMetrics(runId: string): Promise<RunMetrics> {
+    const results = await this.prisma.evalResult.findMany({ where: { runId } });
+    const total = results.length;
+    if (total === 0) {
+      return { accuracy: null, avgLatencyMs: null, avgPromptTokens: null, avgCompletionTokens: null, avgTotalTokens: null, tokensPerSecond: null, efficiencyScore: null };
+    }
+
+    const passed = results.filter(r => r.status === 'passed').length;
+    const accuracy = passed / total;
+
+    const latencies = results.map(r => r.latencyMs).filter((v): v is number => v != null);
+    const avgLatencyMs = latencies.length > 0 ? latencies.reduce((a, b) => a + b, 0) / latencies.length : null;
+
+    const promptTokensList = results.map(r => r.promptTokens).filter((v): v is number => v != null);
+    const avgPromptTokens = promptTokensList.length > 0 ? promptTokensList.reduce((a, b) => a + b, 0) / promptTokensList.length : null;
+
+    const completionTokensList = results.map(r => r.completionTokens).filter((v): v is number => v != null);
+    const avgCompletionTokens = completionTokensList.length > 0 ? completionTokensList.reduce((a, b) => a + b, 0) / completionTokensList.length : null;
+
+    const totalTokensList = results.map(r => r.totalTokens).filter((v): v is number => v != null);
+    const avgTotalTokens = totalTokensList.length > 0 ? totalTokensList.reduce((a, b) => a + b, 0) / totalTokensList.length : null;
+
+    const tokensPerSecond = avgTotalTokens != null && avgLatencyMs != null && avgLatencyMs > 0
+      ? avgTotalTokens / (avgLatencyMs / 1000)
+      : null;
+
+    const efficiencyScore = avgLatencyMs != null && avgLatencyMs > 0
+      ? accuracy / (avgLatencyMs / 1000)
+      : null;
+
+    return { accuracy, avgLatencyMs, avgPromptTokens, avgCompletionTokens, avgTotalTokens, tokensPerSecond, efficiencyScore };
+  }
+
   // ─── Run History ───────────────────────────────────────────────────────────
 
   async listRuns(pocId: string) {
@@ -463,21 +511,28 @@ export class EvalService implements OnModuleInit {
         evalSuiteVersion: { select: { versionNumber: true } },
       },
     });
-    return runs.map((r) => ({
-      id: r.id,
-      pocConfigId: r.pocConfigId,
-      status: r.status,
-      totalCases: r.totalCases,
-      passedCases: r.passedCases,
-      failedCases: r.failedCases,
-      startedAt: r.startedAt.toISOString(),
-      completedAt: r.completedAt?.toISOString() ?? null,
-      runNumber: r.runNumber,
-      evalSuiteVersionId: r.evalSuiteVersionId ?? null,
-      evalSuiteVersionNumber: r.evalSuiteVersion?.versionNumber ?? null,
-      snapshotModel: r.snapshotModel,
-      snapshotEndpointUrl: r.snapshotEndpointUrl,
-    }));
+    const runsWithMetrics = await Promise.all(
+      runs.map(async (r) => {
+        const metrics = r.status === 'completed' ? await this.computeRunMetrics(r.id) : null;
+        return {
+          id: r.id,
+          pocConfigId: r.pocConfigId,
+          status: r.status,
+          totalCases: r.totalCases,
+          passedCases: r.passedCases,
+          failedCases: r.failedCases,
+          startedAt: r.startedAt.toISOString(),
+          completedAt: r.completedAt?.toISOString() ?? null,
+          runNumber: r.runNumber,
+          evalSuiteVersionId: r.evalSuiteVersionId ?? null,
+          evalSuiteVersionNumber: r.evalSuiteVersion?.versionNumber ?? null,
+          snapshotModel: r.snapshotModel,
+          snapshotEndpointUrl: r.snapshotEndpointUrl,
+          metrics,
+        };
+      }),
+    );
+    return runsWithMetrics;
   }
 
   async getRun(pocId: string, runId: string) {
@@ -552,15 +607,6 @@ export class EvalService implements OnModuleInit {
     if (!runA) throw new NotFoundException(`Run ${runAId} not found`);
     if (!runB) throw new NotFoundException(`Run ${runBId} not found`);
 
-    if (runA.evalSuiteVersionId !== runB.evalSuiteVersionId) {
-      const vA = runA.evalSuiteVersion?.versionNumber ?? '?';
-      const vB = runB.evalSuiteVersion?.versionNumber ?? '?';
-      throw new BadRequestException({
-        error: 'CROSS_VERSION_COMPARISON',
-        message: `Runs use different eval suite versions (v${vA} vs v${vB}). Comparisons are only valid within the same version.`,
-      });
-    }
-
     // Get all cases for this POC to build the full case list
     const allCases = await this.prisma.evalCase.findMany({
       where: { pocConfigId: pocId },
@@ -601,11 +647,21 @@ export class EvalService implements OnModuleInit {
       runNumber: run.runNumber,
       evalSuiteVersionId: run.evalSuiteVersionId ?? null,
       evalSuiteVersionNumber: run.evalSuiteVersion?.versionNumber ?? null,
+      configVersionId: run.configVersionId ?? null,
+      snapshotConfigVersionNumber: run.snapshotConfigVersionNumber ?? null,
+      snapshotSystemPrompt: run.snapshotSystemPrompt ?? null,
       snapshotModel: run.snapshotModel,
       snapshotEndpointUrl: run.snapshotEndpointUrl,
+      snapshotJudgeModel: run.snapshotJudgeModel,
+      snapshotJudgeProviderName: run.snapshotJudgeProviderName,
     });
 
-    return { runA: toSummary(runA), runB: toSummary(runB), cases };
+    const [runAMetrics, runBMetrics] = await Promise.all([
+      this.computeRunMetrics(runA.id),
+      this.computeRunMetrics(runB.id),
+    ]);
+
+    return { runA: toSummary(runA), runB: toSummary(runB), runAMetrics, runBMetrics, cases };
   }
 
   private parsePipelineTrace(traceJson: string): unknown[] | null {

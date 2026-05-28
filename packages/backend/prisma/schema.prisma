@@ -51,9 +51,12 @@ model EvalResult {
   latencyMs   Int?
   createdAt   DateTime @default(now())
 
-  pipelineTrace String?
-  errorDetail   String?
-  failureStep   String?
+  pipelineTrace    String?
+  errorDetail      String?
+  failureStep      String?
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
 
   evalCase EvalCase @relation(fields: [evalCaseId], references: [id], onDelete: Cascade)
   evalRun  EvalRun  @relation(fields: [runId], references: [id], onDelete: Cascade)

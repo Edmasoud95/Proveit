@@ -60,7 +60,20 @@ export interface EvalResult {
   reasoning?: string;
   rawResponse?: string;
   latencyMs?: number;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
   createdAt: string;
+}
+
+export interface RunMetrics {
+  accuracy: number | null;
+  avgLatencyMs: number | null;
+  avgPromptTokens: number | null;
+  avgCompletionTokens: number | null;
+  avgTotalTokens: number | null;
+  tokensPerSecond: number | null;
+  efficiencyScore: number | null;
 }
 
 export interface PocConfigVersionSummary {
@@ -89,10 +102,12 @@ export interface EvalRun {
   evalSuiteVersionNumber?: number | null;
   configVersionId?: string | null;
   snapshotConfigVersionNumber?: number | null;
+  snapshotSystemPrompt?: string | null;
   snapshotModel: string;
   snapshotEndpointUrl: string;
   snapshotJudgeModel: string;
   snapshotJudgeProviderName: string;
+  metrics?: RunMetrics | null;
 }
 
 export interface EvalResultDetail {
@@ -140,6 +155,8 @@ export interface RunComparisonCase {
 export interface CompareRunsResponse {
   runA: EvalRun;
   runB: EvalRun;
+  runAMetrics: RunMetrics;
+  runBMetrics: RunMetrics;
   cases: RunComparisonCase[];
 }
 
