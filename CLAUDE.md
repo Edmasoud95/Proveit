@@ -106,6 +106,8 @@ Key backend pattern: `POST /api/pocs/scaffold` is the main entry point — takes
 - SQLite via Prisma 5 — new `PocConfigVersion` table; optional `configVersionId` FK on `EvalRun`; optional `configVersionId` FK on `PocConfig` (current version pointer) (007-poc-config-version-history)
 - TypeScript 5.x (strict mode) + NestJS 10, Prisma 5 (backend); React 18, TanStack Query 5, Tailwind CSS 3, **Recharts** (frontend — user-specified) (008-eval-efficiency-metrics)
 - SQLite via Prisma 5 — 3 nullable columns added to `EvalResult` (`promptTokens`, `completionTokens`, `totalTokens`); no new tables (008-eval-efficiency-metrics)
+- TypeScript 5.x (strict mode) + NestJS 10 (SSE via `@Sse()` + RxJS Subject — already in codebase), React 18, TanStack Query 5, Tailwind CSS 3 (009-poc-generation-ux)
+- SQLite via Prisma 5 — no schema changes required (009-poc-generation-ux)
 
 ## Recent Changes
 - 002-tool-stubs: Added TypeScript 5.x (strict mode), Node.js 20 + NestJS 10 (backend), React 18 + Vite 5 + Tailwind CSS 3 (frontend), OpenAI Node.js SDK

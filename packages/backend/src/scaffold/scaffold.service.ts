@@ -1,84 +1,144 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
-import { buildScaffoldSystemPrompt, buildScaffoldUserPrompt } from './prompts/scaffold.prompt';
-import { PrismaService } from '../prisma/prisma.service';
+import type { ToolDefinition, EvalCaseInput } from '@proveit/shared';
 
-interface ScaffoldedTool {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-}
-
-interface ScaffoldedEvalCase {
-  name: string;
-  input: Record<string, unknown>;
-  judgeCriteria: string;
-}
-
-interface ScaffoldResult {
+interface SystemPromptResult {
   name: string;
   systemPrompt: string;
-  tools: ScaffoldedTool[];
-  evalCases: ScaffoldedEvalCase[];
 }
 
 @Injectable()
 export class ScaffoldService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(ScaffoldService.name);
 
-  async scaffold(description: string, endpointUrl: string, apiKey?: string, model?: string) {
-    const client = new OpenAI({
-      baseURL: endpointUrl,
-      apiKey: apiKey ?? 'not-required',
-    });
+  private extractJson(raw: string): string {
+    // 1. Fenced code block
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenced) return fenced[1].trim();
 
-    const targetModel = model ?? 'gpt-4o';
+    // 2. Outermost { ... } — handles LLMs that add text before/after
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start !== -1 && end > start) return raw.slice(start, end + 1);
 
-    let raw: string;
+    return raw.trim();
+  }
+
+  private parseJson<T>(raw: string, step: string): T {
+    const cleaned = this.extractJson(raw);
     try {
-      const response = await client.chat.completions.create({
-        model: targetModel,
-        messages: [
-          { role: 'system', content: buildScaffoldSystemPrompt() },
-          { role: 'user', content: buildScaffoldUserPrompt(description) },
-        ],
-        temperature: 0.7,
-      });
-      raw = response.choices[0].message.content ?? '{}';
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'LLM call failed';
-      throw new BadRequestException(`Scaffolding failed: ${message}`);
+      return JSON.parse(cleaned) as T;
+    } catch (e) {
+      this.logger.error(`[${step}] JSON parse failed. Raw response:\n${raw}\n\nExtracted:\n${cleaned}\n\nError: ${String(e)}`);
+      throw new Error(`The LLM returned an unexpected response format during "${step}". Please retry.`);
     }
+  }
 
-    // Strip markdown code fences if the model wrapped JSON in ```json ... ```
-    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? raw.match(/([\s\S]*)/);
-    const jsonStr = jsonMatch ? jsonMatch[1].trim() : raw.trim();
+  async generateSystemPrompt(
+    description: string,
+    client: OpenAI,
+    model: string,
+  ): Promise<SystemPromptResult> {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert AI agent workflow designer. Given a workflow description, generate a concise name and a detailed system prompt for the agent.
 
-    let result: ScaffoldResult;
-    try {
-      result = JSON.parse(jsonStr) as ScaffoldResult;
-    } catch {
-      throw new BadRequestException('Scaffolding returned invalid JSON');
-    }
-
-    const poc = await this.prisma.pocConfig.create({
-      data: {
-        name: result.name ?? description.slice(0, 50),
-        description,
-        systemPrompt: result.systemPrompt ?? '',
-        tools: JSON.stringify(result.tools ?? []),
-        evalCases: {
-          create: (result.evalCases ?? []).map((c, i) => ({
-            name: c.name,
-            input: JSON.stringify(c.input),
-            judgeCriteria: c.judgeCriteria,
-            order: i,
-          })),
+Return ONLY valid JSON (no markdown, no explanation):
+{
+  "name": "string (2-5 word name for this POC)",
+  "systemPrompt": "string (the complete system prompt for the agent — detailed, specific, actionable)"
+}`,
         },
-      },
-      include: { evalCases: true, llmConnections: true },
+        { role: 'user', content: `Workflow description: ${description}` },
+      ],
+      temperature: 0.7,
     });
+    const raw = response.choices[0].message.content ?? '{}';
+    return this.parseJson<SystemPromptResult>(raw, 'system-prompt');
+  }
 
-    return poc;
+  async generateTools(
+    description: string,
+    systemPrompt: string,
+    client: OpenAI,
+    model: string,
+  ): Promise<ToolDefinition[]> {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert AI agent workflow designer. Given a workflow description and agent system prompt, design 3–7 tools the agent needs.
+
+Return ONLY valid JSON (no markdown, no explanation):
+{
+  "tools": [
+    {
+      "name": "string (snake_case tool name)",
+      "description": "string (what this tool does and when to use it)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "param_name": { "type": "string|number|boolean|array|object", "description": "what this parameter is" }
+        },
+        "required": ["list", "of", "required", "params"]
+      },
+      "mockResponse": "string (example response this tool would return)"
+    }
+  ]
+}`,
+        },
+        {
+          role: 'user',
+          content: `Workflow description: ${description}\n\nSystem prompt: ${systemPrompt}`,
+        },
+      ],
+      temperature: 0.7,
+    });
+    const raw = response.choices[0].message.content ?? '{}';
+    const parsed = this.parseJson<{ tools: ToolDefinition[] }>(raw, 'tools');
+    return parsed.tools ?? [];
+  }
+
+  async generateEvalCases(
+    description: string,
+    systemPrompt: string,
+    tools: ToolDefinition[],
+    client: OpenAI,
+    model: string,
+  ): Promise<Array<{ name: string; input: EvalCaseInput; judgeCriteria: string }>> {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: `You are an expert AI agent evaluator. Given a workflow description, system prompt, and tools, create exactly 5 diverse evaluation test cases.
+
+Return ONLY valid JSON (no markdown, no explanation):
+{
+  "evalCases": [
+    {
+      "name": "string (descriptive test case name)",
+      "input": {
+        "messages": [{ "role": "user", "content": "string (realistic user message)" }]
+      },
+      "judgeCriteria": "string (specific, measurable criteria for an LLM judge to score pass/fail)"
+    }
+  ]
+}`,
+        },
+        {
+          role: 'user',
+          content: `Workflow description: ${description}\n\nSystem prompt: ${systemPrompt}\n\nTools: ${JSON.stringify(tools)}`,
+        },
+      ],
+      temperature: 0.7,
+    });
+    const raw = response.choices[0].message.content ?? '{}';
+    const parsed = this.parseJson<{ evalCases: Array<{ name: string; input: EvalCaseInput; judgeCriteria: string }> }>(raw, 'eval-cases');
+    return parsed.evalCases ?? [];
   }
 }

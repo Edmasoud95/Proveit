@@ -36,12 +36,10 @@ export function Home() {
   async function handleCreate(data: CreatePocPayload) {
     setCreating(true);
     try {
-      const poc = await api.post<PocConfigSummary>('/pocs/scaffold', data);
-      queryClient.invalidateQueries({ queryKey: ['pocs'] });
-      navigate(`/poc/${poc.id}`);
+      const { jobId } = await api.post<{ jobId: string }>('/pocs/scaffold', data);
+      navigate(`/scaffold/${jobId}`, { state: data });
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Scaffolding failed', 'error');
-    } finally {
       setCreating(false);
     }
   }

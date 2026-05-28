@@ -203,6 +203,51 @@ export interface LlmConnectionTestResult {
   error?: string;
 }
 
+// Scaffold SSE event types
+export type ScaffoldStep = 'system-prompt' | 'tools' | 'eval-cases' | 'saving';
+
+export interface ScaffoldStepStartEvent {
+  type: 'step-start';
+  step: ScaffoldStep;
+  index: number;
+  total: number;
+}
+
+export interface ScaffoldContentPayload {
+  type: 'system-prompt' | 'tools' | 'eval-cases';
+  name?: string;
+  systemPrompt?: string;
+  tools?: ToolDefinition[];
+  evalCases?: Array<{ name: string; input: EvalCaseInput; judgeCriteria: string }>;
+}
+
+export interface ScaffoldStepCompleteEvent {
+  type: 'step-complete';
+  step: ScaffoldStep;
+  content?: ScaffoldContentPayload;
+}
+
+export interface ScaffoldDoneEvent {
+  type: 'done';
+  pocId: string;
+}
+
+export interface ScaffoldErrorEvent {
+  type: 'error';
+  step: ScaffoldStep;
+  message: string;
+}
+
+export type ScaffoldStreamEvent =
+  | ScaffoldStepStartEvent
+  | ScaffoldStepCompleteEvent
+  | ScaffoldDoneEvent
+  | ScaffoldErrorEvent;
+
+export interface ScaffoldJobResponse {
+  jobId: string;
+}
+
 // SSE event payloads
 export interface EvalCaseStartEvent {
   caseId: string;

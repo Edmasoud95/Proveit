@@ -11,6 +11,7 @@ import {
   Header,
   Res,
   BadRequestException,
+  Sse,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { PocService } from './poc.service';
@@ -34,6 +35,7 @@ export class PocController {
   ) {}
 
   @Post('scaffold')
+  @HttpCode(202)
   async scaffold(@Body() body: ScaffoldPocDto) {
     let endpointUrl = body.endpointUrl;
     let apiKey = body.apiKey;
@@ -51,7 +53,20 @@ export class PocController {
 
     if (!endpointUrl) throw new BadRequestException('endpointUrl is required');
 
-    return this.pocService.scaffoldWithLlm(body.description, endpointUrl, apiKey, model);
+    const jobId = this.pocService.startScaffoldJob({ description: body.description, endpointUrl, apiKey, model });
+    return { jobId };
+  }
+
+  @Sse('scaffold/stream/:jobId')
+  @Header('Cache-Control', 'no-cache')
+  @Header('X-Accel-Buffering', 'no')
+  scaffoldStream(@Param('jobId') jobId: string) {
+    return this.pocService.getJobStream(jobId);
+  }
+
+  @Get('scaffold/completed/:jobId')
+  getCompletedJob(@Param('jobId') jobId: string) {
+    return { pocId: this.pocService.getCompletedPocId(jobId) };
   }
 
   @Get()
