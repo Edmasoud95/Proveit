@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes float-up {
+  0%   { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-18px); }
+}
+
+@keyframes ring-new {
+  0%   { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.45); }
+  60%  { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.45); }
+  100% { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0); }
+}
+.preview-new {
+  animation: ring-new 2s ease-out forwards;
+}
+
 @layer base {
   body {
     @apply bg-surface text-gray-100 font-sans antialiased;

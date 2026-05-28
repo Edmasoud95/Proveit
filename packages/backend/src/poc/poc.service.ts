@@ -1,16 +1,117 @@
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { MessageEvent } from '@nestjs/common';
+import { ReplaySubject, Observable } from 'rxjs';
+import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScaffoldService } from '../scaffold/scaffold.service';
 import { CreatePocDto } from './dto/create-poc.dto';
 import { UpdatePocDto } from './dto/update-poc.dto';
+import type { ScaffoldStep, ScaffoldStreamEvent } from '@proveit/shared';
 
 @Injectable()
 export class PocService {
+  private jobs = new Map<string, ReplaySubject<MessageEvent>>();
+  private completedJobs = new Map<string, string>(); // jobId → pocId
+
   constructor(
     private prisma: PrismaService,
     private scaffold: ScaffoldService,
   ) {}
+
+  startScaffoldJob(params: { description: string; endpointUrl: string; apiKey?: string; model?: string }): string {
+    const jobId = randomUUID();
+    const subject = new ReplaySubject<MessageEvent>();
+    this.jobs.set(jobId, subject);
+    void this.runScaffoldJob(jobId, params);
+    return jobId;
+  }
+
+  getJobStream(jobId: string): Observable<MessageEvent> {
+    const subject = this.jobs.get(jobId);
+    if (!subject) throw new NotFoundException('Scaffold job not found');
+    return subject.asObservable();
+  }
+
+  getCompletedPocId(jobId: string): string | null {
+    return this.completedJobs.get(jobId) ?? null;
+  }
+
+  private emit(subject: ReplaySubject<MessageEvent>, payload: ScaffoldStreamEvent): void {
+    subject.next({ data: JSON.stringify(payload) });
+  }
+
+  private toPlainLanguage(err: unknown): string {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed') || msg.includes('ENOTFOUND')) {
+      return 'Could not reach the LLM endpoint — check your connection and retry.';
+    }
+    if (msg.includes('ETIMEDOUT') || msg.includes('timed out') || msg.includes('timeout')) {
+      return 'The request timed out — the LLM may be overloaded. Please retry.';
+    }
+    if (msg.includes('unexpected response format')) return msg;
+    return `Generation failed: ${msg}`;
+  }
+
+  private async runScaffoldJob(
+    jobId: string,
+    params: { description: string; endpointUrl: string; apiKey?: string; model?: string },
+  ): Promise<void> {
+    const subject = this.jobs.get(jobId)!;
+    const { description, endpointUrl, apiKey, model } = params;
+    const targetModel = model ?? 'gpt-4o';
+    const client = new OpenAI({ baseURL: endpointUrl, apiKey: apiKey ?? 'not-required' });
+
+    let currentStep: ScaffoldStep = 'system-prompt';
+    try {
+      this.emit(subject, { type: 'step-start', step: 'system-prompt', index: 0, total: 4 });
+      const { name, systemPrompt } = await this.scaffold.generateSystemPrompt(description, client, targetModel);
+      this.emit(subject, { type: 'step-complete', step: 'system-prompt', content: { type: 'system-prompt', name, systemPrompt } });
+
+      currentStep = 'tools';
+      this.emit(subject, { type: 'step-start', step: 'tools', index: 1, total: 4 });
+      const tools = await this.scaffold.generateTools(description, systemPrompt, client, targetModel);
+      this.emit(subject, { type: 'step-complete', step: 'tools', content: { type: 'tools', tools } });
+
+      currentStep = 'eval-cases';
+      this.emit(subject, { type: 'step-start', step: 'eval-cases', index: 2, total: 4 });
+      const evalCases = await this.scaffold.generateEvalCases(description, systemPrompt, tools, client, targetModel);
+      this.emit(subject, { type: 'step-complete', step: 'eval-cases', content: { type: 'eval-cases', evalCases } });
+
+      currentStep = 'saving';
+      this.emit(subject, { type: 'step-start', step: 'saving', index: 3, total: 4 });
+      await new Promise<void>(r => setTimeout(r, 600));
+      const poc = await this.prisma.pocConfig.create({
+        data: {
+          name: name ?? description.slice(0, 50),
+          description,
+          systemPrompt,
+          tools: JSON.stringify(tools),
+          evalCases: {
+            create: evalCases.map((c, i) => ({
+              name: c.name,
+              input: JSON.stringify(c.input),
+              judgeCriteria: c.judgeCriteria,
+              order: i,
+            })),
+          },
+        },
+        include: { evalCases: true },
+      });
+      await this.createConfigVersion(poc.id, poc.systemPrompt, poc.tools, 'Initial version');
+      this.emit(subject, { type: 'done', pocId: poc.id });
+      this.completedJobs.set(jobId, poc.id);
+    } catch (err) {
+      this.emit(subject, { type: 'error', step: currentStep, message: this.toPlainLanguage(err) });
+    } finally {
+      subject.complete();
+      const TTL = 30 * 60 * 1000;
+      setTimeout(() => {
+        this.jobs.delete(jobId);
+        this.completedJobs.delete(jobId);
+      }, TTL);
+    }
+  }
 
   async create(dto: CreatePocDto) {
     // Use a fallback LLM config (user must connect their own for scaffolding)
@@ -20,17 +121,6 @@ export class PocService {
     throw new BadRequestException(
       'Connect an LLM endpoint before creating a POC. Use POST /api/pocs/scaffold with endpoint details.',
     );
-  }
-
-  async scaffoldWithLlm(
-    description: string,
-    endpointUrl: string,
-    apiKey?: string,
-    model?: string,
-  ) {
-    const poc = await this.scaffold.scaffold(description, endpointUrl, apiKey, model);
-    await this.createConfigVersion(poc.id, poc.systemPrompt, poc.tools, 'Initial version');
-    return poc;
   }
 
   async findAll() {

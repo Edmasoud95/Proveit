@@ -180,7 +180,7 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
         )}
       </div>
 
-      <Button type="submit" loading={loading} disabled={description.trim().length < 10}>
+      <Button type="submit" loading={loading} disabled={description.trim().length < 10 || !!loading}>
         <Sparkle /> {loading ? 'Scaffolding…' : 'Scaffold POC'}
       </Button>
     </form>
