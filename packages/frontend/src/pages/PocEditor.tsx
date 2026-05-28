@@ -12,6 +12,7 @@ import { Button } from '../components/ui/Button';
 import { Sparkle } from '../components/ui/Sparkle';
 import { ExportButton } from '../components/poc/ExportButton';
 import { GenerateStubsButton } from '../components/poc/GenerateStubsButton';
+import { ConfigVersionHistory } from '../components/poc/ConfigVersionHistory';
 import { Spinner } from '../components/ui/Spinner';
 
 type Tab = 'prompt' | 'tools' | 'evals';
@@ -29,7 +30,10 @@ export function PocEditor() {
 
   const updateMutation = useMutation({
     mutationFn: (data: Partial<PocConfig>) => api.patch<PocConfig>(`/pocs/${id}`, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['poc', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['poc', id] });
+      queryClient.invalidateQueries({ queryKey: ['config-versions', id] });
+    },
   });
 
   const importCasesMutation = useMutation({
@@ -108,7 +112,7 @@ export function PocEditor() {
         ))}
       </div>
 
-      <div>
+      <div className="flex flex-col gap-6">
         {tab === 'prompt' && (
           <SystemPromptEditor
             value={poc.systemPrompt}
@@ -143,9 +147,17 @@ export function PocEditor() {
                 <Sparkle /> Generate test data
               </Button>
             </div>
-            <EvalCasesList cases={poc.evalCases} />
+            <EvalCasesList pocId={poc.id} cases={poc.evalCases} />
           </div>
         )}
+
+        <ConfigVersionHistory
+          pocId={poc.id}
+          onRestore={() => {
+            queryClient.invalidateQueries({ queryKey: ['poc', id] });
+            queryClient.invalidateQueries({ queryKey: ['config-versions', id] });
+          }}
+        />
       </div>
     </div>
   );

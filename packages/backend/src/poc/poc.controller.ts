@@ -75,6 +75,23 @@ export class PocController {
     return this.pocService.remove(id);
   }
 
+  // ─── Config Versions ──────────────────────────────────────────────────────
+
+  @Get(':id/config-versions')
+  listConfigVersions(@Param('id') id: string) {
+    return this.pocService.listConfigVersions(id);
+  }
+
+  @Get(':id/config-versions/:versionId')
+  getConfigVersion(@Param('id') id: string, @Param('versionId') versionId: string) {
+    return this.pocService.getConfigVersion(id, versionId);
+  }
+
+  @Post(':id/config-versions/:versionId/restore')
+  restoreConfigVersion(@Param('id') id: string, @Param('versionId') versionId: string) {
+    return this.pocService.restoreConfigVersion(id, versionId);
+  }
+
   @Get(':id/export')
   async export(@Param('id') id: string, @Res() res: Response) {
     const data = await this.pocService.export(id);

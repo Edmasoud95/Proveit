@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScaffoldService } from '../scaffold/scaffold.service';
@@ -27,7 +28,9 @@ export class PocService {
     apiKey?: string,
     model?: string,
   ) {
-    return this.scaffold.scaffold(description, endpointUrl, apiKey, model);
+    const poc = await this.scaffold.scaffold(description, endpointUrl, apiKey, model);
+    await this.createConfigVersion(poc.id, poc.systemPrompt, poc.tools, 'Initial version');
+    return poc;
   }
 
   async findAll() {
@@ -67,7 +70,7 @@ export class PocService {
 
   async update(id: string, dto: UpdatePocDto) {
     await this.findOne(id);
-    return this.prisma.pocConfig.update({
+    const updated = await this.prisma.pocConfig.update({
       where: { id },
       data: {
         ...(dto.name && { name: dto.name }),
@@ -76,6 +79,12 @@ export class PocService {
       },
       include: { evalCases: true, llmConnections: true },
     });
+
+    if (dto.systemPrompt !== undefined || dto.tools !== undefined) {
+      await this.createConfigVersion(id, updated.systemPrompt, updated.tools);
+    }
+
+    return updated;
   }
 
   async remove(id: string) {
@@ -90,5 +99,76 @@ export class PocService {
       exportedAt: new Date().toISOString(),
       poc,
     };
+  }
+
+  // ─── Config Versioning ────────────────────────────────────────────────────
+
+  async createConfigVersion(pocId: string, systemPrompt: string, tools: string, label?: string): Promise<void> {
+    const contentHash = createHash('sha256').update(systemPrompt + tools).digest('hex');
+
+    const latest = await this.prisma.pocConfigVersion.findFirst({
+      where: { pocConfigId: pocId },
+      orderBy: { versionNumber: 'desc' },
+    });
+
+    if (latest?.contentHash === contentHash) return;
+
+    const versionNumber = (latest?.versionNumber ?? 0) + 1;
+    const changeLabel = label ?? this.deriveChangeLabel(latest, systemPrompt, tools);
+
+    const version = await this.prisma.pocConfigVersion.create({
+      data: { pocConfigId: pocId, versionNumber, systemPrompt, tools, changeLabel, contentHash },
+    });
+
+    await this.prisma.pocConfig.update({
+      where: { id: pocId },
+      data: { currentConfigVersionId: version.id },
+    });
+  }
+
+  private deriveChangeLabel(
+    previous: { systemPrompt: string; tools: string } | null,
+    newPrompt: string,
+    newTools: string,
+  ): string {
+    if (!previous) return 'Initial version';
+    const promptChanged = previous.systemPrompt !== newPrompt;
+    const toolsChanged = previous.tools !== newTools;
+    if (promptChanged && toolsChanged) return 'System prompt and tools changed';
+    if (promptChanged) return 'System prompt changed';
+    if (toolsChanged) return 'Tools changed';
+    return 'Updated';
+  }
+
+  async listConfigVersions(pocId: string) {
+    return this.prisma.pocConfigVersion.findMany({
+      where: { pocConfigId: pocId },
+      orderBy: { versionNumber: 'desc' },
+      select: { id: true, versionNumber: true, changeLabel: true, createdAt: true },
+    });
+  }
+
+  async getConfigVersion(pocId: string, versionId: string) {
+    const v = await this.prisma.pocConfigVersion.findFirst({ where: { id: versionId, pocConfigId: pocId } });
+    if (!v) throw new NotFoundException('Config version not found');
+    return v;
+  }
+
+  async restoreConfigVersion(pocId: string, versionId: string) {
+    const v = await this.getConfigVersion(pocId, versionId);
+    const tools = JSON.parse(v.tools) as object[];
+    await this.update(pocId, { systemPrompt: v.systemPrompt, tools: tools as never });
+    // Override the auto-generated label with a restore label
+    const latest = await this.prisma.pocConfigVersion.findFirst({
+      where: { pocConfigId: pocId },
+      orderBy: { versionNumber: 'desc' },
+    });
+    if (latest) {
+      await this.prisma.pocConfigVersion.update({
+        where: { id: latest.id },
+        data: { changeLabel: `Restored from v${v.versionNumber}` },
+      });
+    }
+    return this.findOne(pocId);
   }
 }

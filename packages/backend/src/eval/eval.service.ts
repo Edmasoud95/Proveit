@@ -138,10 +138,14 @@ export class EvalService implements OnModuleInit {
   // ─── Run Execution ─────────────────────────────────────────────────────────
 
   async startRun(pocId: string): Promise<{ runId: string; totalCases: number; status: string }> {
-    const [cases, poc, latestVersion] = await Promise.all([
+    const [cases, poc, latestVersion, latestConfigVersion] = await Promise.all([
       this.prisma.evalCase.findMany({ where: { pocConfigId: pocId } }),
       this.prisma.pocConfig.findUnique({ where: { id: pocId } }),
       this.prisma.evalSuiteVersion.findFirst({
+        where: { pocConfigId: pocId },
+        orderBy: { versionNumber: 'desc' },
+      }),
+      this.prisma.pocConfigVersion.findFirst({
         where: { pocConfigId: pocId },
         orderBy: { versionNumber: 'desc' },
       }),
@@ -176,6 +180,8 @@ export class EvalService implements OnModuleInit {
         totalCases: cases.length,
         runNumber: (maxRunNumber._max.runNumber ?? 0) + 1,
         evalSuiteVersionId: latestVersion?.id ?? null,
+        configVersionId: latestConfigVersion?.id ?? null,
+        snapshotConfigVersionNumber: latestConfigVersion?.versionNumber ?? null,
         snapshotSystemPrompt: poc?.systemPrompt ?? '',
         snapshotModel,
         snapshotEndpointUrl,

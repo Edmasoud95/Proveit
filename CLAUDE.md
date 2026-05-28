@@ -102,6 +102,8 @@ Key backend pattern: `POST /api/pocs/scaffold` is the main entry point — takes
 - No new storage. Chat history is session-only (React state). (005-poc-agent-chat)
 - TypeScript 5.x (strict mode) + React 18, TanStack Query 5, Tailwind CSS 3 (frontend); NestJS 10, Prisma 5 (backend — no changes required) (006-smart-stub-generation)
 - N/A (no schema changes) (006-smart-stub-generation)
+- TypeScript 5.x (strict mode) + NestJS 10, Prisma 5 (backend); React 18, TanStack Query 5, Tailwind CSS 3 (frontend) (007-poc-config-version-history)
+- SQLite via Prisma 5 — new `PocConfigVersion` table; optional `configVersionId` FK on `EvalRun`; optional `configVersionId` FK on `PocConfig` (current version pointer) (007-poc-config-version-history)
 
 ## Recent Changes
 - 002-tool-stubs: Added TypeScript 5.x (strict mode), Node.js 20 + NestJS 10 (backend), React 18 + Vite 5 + Tailwind CSS 3 (frontend), OpenAI Node.js SDK
