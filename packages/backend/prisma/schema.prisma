@@ -17,11 +17,14 @@ model PocConfig {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  currentConfigVersionId String?
+
   evalCases          EvalCase[]
   llmConnections     LlmConnection[]
   taskModelOverrides TaskModelOverride[]
   evalRuns           EvalRun[]
   evalSuiteVersions  EvalSuiteVersion[]
+  configVersions     PocConfigVersion[]
 }
 
 model EvalCase {
@@ -54,6 +57,23 @@ model EvalResult {
 
   evalCase EvalCase @relation(fields: [evalCaseId], references: [id], onDelete: Cascade)
   evalRun  EvalRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+model PocConfigVersion {
+  id            String   @id @default(uuid())
+  pocConfigId   String
+  versionNumber Int
+  systemPrompt  String
+  tools         String
+  changeLabel   String
+  contentHash   String
+  createdAt     DateTime @default(now())
+
+  pocConfig PocConfig @relation(fields: [pocConfigId], references: [id], onDelete: Cascade)
+  evalRuns  EvalRun[]
+
+  @@unique([pocConfigId, versionNumber])
+  @@index([pocConfigId])
 }
 
 model LlmConnection {
@@ -99,6 +119,8 @@ model EvalRun {
 
   runNumber            Int       @default(0)
   evalSuiteVersionId   String?
+  configVersionId               String?
+  snapshotConfigVersionNumber   Int?
   snapshotSystemPrompt      String    @default("")
   snapshotModel             String    @default("")
   snapshotEndpointUrl       String    @default("")
@@ -107,6 +129,7 @@ model EvalRun {
 
   pocConfig        PocConfig          @relation(fields: [pocConfigId], references: [id], onDelete: Cascade)
   evalSuiteVersion EvalSuiteVersion?  @relation(fields: [evalSuiteVersionId], references: [id], onDelete: SetNull)
+  configVersion    PocConfigVersion?  @relation(fields: [configVersionId], references: [id], onDelete: SetNull)
   results          EvalResult[]
 }
 

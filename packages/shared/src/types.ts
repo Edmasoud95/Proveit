@@ -63,6 +63,18 @@ export interface EvalResult {
   createdAt: string;
 }
 
+export interface PocConfigVersionSummary {
+  id: string;
+  versionNumber: number;
+  changeLabel: string;
+  createdAt: string;
+}
+
+export interface PocConfigVersion extends PocConfigVersionSummary {
+  systemPrompt: string;
+  tools: string;
+}
+
 export interface EvalRun {
   id: string;
   pocConfigId: string;
@@ -75,6 +87,8 @@ export interface EvalRun {
   runNumber: number;
   evalSuiteVersionId?: string | null;
   evalSuiteVersionNumber?: number | null;
+  configVersionId?: string | null;
+  snapshotConfigVersionNumber?: number | null;
   snapshotModel: string;
   snapshotEndpointUrl: string;
   snapshotJudgeModel: string;

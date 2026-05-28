@@ -5,6 +5,8 @@ import { Input } from '../ui/Input';
 import { Card } from '../ui/Card';
 import { ToolStubButton } from './ToolStubButton';
 
+
+
 function isValidJson(value: string): boolean {
   if (!value.trim()) return true;
   try { JSON.parse(value); return true; } catch { return false; }
@@ -20,6 +22,7 @@ export function ToolsEditor({ pocId, tools, onSave }: ToolsEditorProps) {
   const [draft, setDraft] = useState(tools);
   const [saving, setSaving] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [confirmDeleteIdx, setConfirmDeleteIdx] = useState<number | null>(null);
 
   useEffect(() => {
     setDraft((prev) =>
@@ -61,8 +64,13 @@ export function ToolsEditor({ pocId, tools, onSave }: ToolsEditorProps) {
     setExpandedIdx(draft.length);
   }
 
-  function removeTool(idx: number) {
-    setDraft((prev) => prev.filter((_, i) => i !== idx));
+  async function removeTool(idx: number) {
+    const updated = draft.filter((_, i) => i !== idx);
+    setDraft(updated);
+    setConfirmDeleteIdx(null);
+    setExpandedIdx(null);
+    setSaving(true);
+    try { await onSave(updated); } finally { setSaving(false); }
   }
 
 
@@ -84,13 +92,32 @@ export function ToolsEditor({ pocId, tools, onSave }: ToolsEditorProps) {
               />
               <span className="font-mono text-sm text-accent">{tool.name}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={(e) => { e.stopPropagation(); removeTool(idx); }}
-                className="text-muted hover:text-red-400 transition-colors text-xs"
-              >
-                Remove
-              </button>
+            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              {confirmDeleteIdx === idx ? (
+                <>
+                  <span className="text-xs text-gray-400">Delete?</span>
+                  <button
+                    onClick={() => removeTool(idx)}
+                    disabled={saving}
+                    className="px-2 py-0.5 text-xs rounded border border-red-800 text-red-400 hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    onClick={() => setConfirmDeleteIdx(null)}
+                    className="px-2 py-0.5 text-xs rounded border border-border text-muted hover:text-white transition-colors"
+                  >
+                    No
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setConfirmDeleteIdx(idx)}
+                  className="text-muted hover:text-red-400 transition-colors text-xs"
+                >
+                  Remove
+                </button>
+              )}
               <span className="text-muted text-xs">{expandedIdx === idx ? '▾' : '▸'}</span>
             </div>
           </div>
