@@ -116,8 +116,9 @@ export class LlmService {
   // ─── Routing ──────────────────────────────────────────────────────────────
 
   async getRouting(pocId: string): Promise<LlmRoutingConfig> {
-    const [providers, overrideRows] = await Promise.all([
+    const [pocProviders, globalProviders, overrideRows] = await Promise.all([
       this.listProviders(pocId),
+      this.listGlobalProviders(),
       this.prisma.taskModelOverride.findMany({
         where: { pocConfigId: pocId },
         include: { connection: true },
@@ -129,16 +130,18 @@ export class LlmService {
       providerName: o.connection.name,
       model: o.model,
     }));
-    return { providers, overrides };
+    return { providers: [...pocProviders, ...globalProviders], overrides };
   }
 
   async setTaskOverride(pocId: string, taskType: string, connectionId: string, model: string): Promise<TaskModelOverride> {
     if (!VALID_TASK_TYPES.includes(taskType as TaskType)) {
       throw new BadRequestException({ error: 'INVALID_TASK_TYPE', message: `taskType must be one of: ${VALID_TASK_TYPES.join(', ')}` });
     }
-    const conn = await this.prisma.llmConnection.findFirst({ where: { id: connectionId, pocConfigId: pocId } });
+    const conn = await this.prisma.llmConnection.findFirst({
+      where: { id: connectionId, OR: [{ pocConfigId: pocId }, { pocConfigId: null }] },
+    });
     if (!conn) {
-      throw new BadRequestException({ error: 'PROVIDER_NOT_IN_POC', message: 'Provider does not belong to this POC.' });
+      throw new BadRequestException({ error: 'PROVIDER_NOT_FOUND', message: 'Provider not found for this POC or globally.' });
     }
     await this.prisma.taskModelOverride.upsert({
       where: { pocConfigId_taskType: { pocConfigId: pocId, taskType } },
@@ -157,8 +160,10 @@ export class LlmService {
       where: { pocConfigId_taskType: { pocConfigId: pocId, taskType } },
       include: { connection: true },
     });
-    const conn = override?.connection ?? await this.prisma.llmConnection.findFirst({ where: { pocConfigId: pocId, isDefault: true } });
-    if (!conn) throw new NotFoundException('No default LLM provider configured. Add a provider on the LLM Settings page.');
+    const conn = override?.connection
+      ?? await this.prisma.llmConnection.findFirst({ where: { pocConfigId: pocId, isDefault: true } })
+      ?? await this.prisma.llmConnection.findFirst({ where: { pocConfigId: null, isDefault: true } });
+    if (!conn) throw new NotFoundException('No default LLM provider configured. Add a provider on the LLM Settings page or in Global Settings.');
     const model = override ? override.model : conn.model;
     return {
       client: this.getClient(conn.endpointUrl, conn.apiKey ?? undefined),
@@ -223,12 +228,120 @@ export class LlmService {
     }
   }
 
+  async fetchModels(endpointUrl?: string, apiKey?: string, globalProviderId?: string) {
+    if (globalProviderId) {
+      const conn = await this.prisma.llmConnection.findFirst({ where: { id: globalProviderId, pocConfigId: null } });
+      if (!conn) throw new NotFoundException('Global provider not found');
+      return this.fetchModelsFromUrl(conn.endpointUrl, conn.apiKey ?? undefined);
+    }
+    if (!endpointUrl) throw new NotFoundException('endpointUrl is required');
+    return this.fetchModelsFromUrl(endpointUrl, apiKey);
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private toProvider(conn: { id: string; pocConfigId: string; name: string; isDefault: boolean; endpointUrl: string; model: string; isActive: boolean; lastCheckedAt: Date | null; availableModels: string | null }): LlmProvider {
+  // ─── Global Provider CRUD ─────────────────────────────────────────────────
+
+  async listGlobalProviders(): Promise<LlmProvider[]> {
+    const conns = await this.prisma.llmConnection.findMany({
+      where: { pocConfigId: null },
+      orderBy: { isDefault: 'desc' },
+    });
+    return conns.map((c) => this.toProvider(c));
+  }
+
+  async createGlobalProvider(dto: CreateProviderDto): Promise<LlmProvider> {
+    const existingCount = await this.prisma.llmConnection.count({ where: { pocConfigId: null } });
+    const conn = await this.prisma.llmConnection.create({
+      data: {
+        pocConfigId: null,
+        name: dto.name,
+        endpointUrl: dto.endpointUrl,
+        apiKey: dto.apiKey,
+        model: dto.model,
+        isDefault: existingCount === 0,
+      },
+    });
+    return this.toProvider(conn);
+  }
+
+  async updateGlobalProvider(id: string, dto: UpdateProviderDto): Promise<LlmProvider> {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { id, pocConfigId: null } });
+    if (!conn) throw new NotFoundException('Global provider not found');
+    const updated = await this.prisma.llmConnection.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.endpointUrl !== undefined && { endpointUrl: dto.endpointUrl, isActive: false }),
+        ...(dto.apiKey !== undefined && { apiKey: dto.apiKey, isActive: false }),
+        ...(dto.model !== undefined && { model: dto.model }),
+      },
+    });
+    return this.toProvider(updated);
+  }
+
+  async deleteGlobalProvider(id: string): Promise<void> {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { id, pocConfigId: null } });
+    if (!conn) throw new NotFoundException('Global provider not found');
+    if (conn.isDefault) {
+      const otherCount = await this.prisma.llmConnection.count({
+        where: { pocConfigId: null, id: { not: id } },
+      });
+      if (otherCount > 0) {
+        throw new BadRequestException({
+          error: 'CANNOT_DELETE_DEFAULT',
+          message: 'Designate another provider as default before deleting this one.',
+        });
+      }
+    }
+    await this.prisma.llmConnection.delete({ where: { id } });
+  }
+
+  async testGlobalProvider(id: string) {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { id, pocConfigId: null } });
+    if (!conn) throw new NotFoundException('Global provider not found');
+
+    const client = this.getClient(conn.endpointUrl, conn.apiKey ?? undefined);
+    const start = Date.now();
+    try {
+      const response = await client.models.list();
+      const models = response.data.map((m) => m.id);
+      const latencyMs = Date.now() - start;
+      await this.prisma.llmConnection.update({
+        where: { id },
+        data: { isActive: true, lastCheckedAt: new Date(), availableModels: JSON.stringify(models) },
+      });
+      return { status: 'connected' as const, models, latencyMs };
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err.message : 'Connection failed';
+      await this.prisma.llmConnection.update({
+        where: { id },
+        data: { isActive: false, lastCheckedAt: new Date() },
+      });
+      return { status: 'failed' as const, error };
+    }
+  }
+
+  async setGlobalDefault(id: string): Promise<LlmProvider> {
+    const conn = await this.prisma.llmConnection.findFirst({ where: { id, pocConfigId: null } });
+    if (!conn) throw new NotFoundException('Global provider not found');
+    await this.prisma.$transaction([
+      this.prisma.llmConnection.updateMany({
+        where: { pocConfigId: null },
+        data: { isDefault: false },
+      }),
+      this.prisma.llmConnection.update({ where: { id }, data: { isDefault: true } }),
+    ]);
+    return this.toProvider({ ...conn, isDefault: true });
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  private toProvider(conn: { id: string; pocConfigId: string | null; name: string; isDefault: boolean; endpointUrl: string; model: string; isActive: boolean; lastCheckedAt: Date | null; availableModels: string | null }): LlmProvider {
     return {
       id: conn.id,
-      pocConfigId: conn.pocConfigId,
+      pocConfigId: conn.pocConfigId ?? undefined,
+      isGlobal: !conn.pocConfigId,
       name: conn.name,
       isDefault: conn.isDefault,
       endpointUrl: conn.endpointUrl,

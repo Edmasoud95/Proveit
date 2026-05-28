@@ -10,31 +10,48 @@ import {
   HttpStatus,
   Header,
   Res,
+  BadRequestException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { PocService } from './poc.service';
 import { CreatePocDto } from './dto/create-poc.dto';
 import { UpdatePocDto } from './dto/update-poc.dto';
+import { PrismaService } from '../prisma/prisma.service';
 
 class ScaffoldPocDto {
   description!: string;
-  endpointUrl!: string;
+  endpointUrl?: string;
   apiKey?: string;
   model?: string;
+  globalProviderId?: string;
 }
 
 @Controller('pocs')
 export class PocController {
-  constructor(private readonly pocService: PocService) {}
+  constructor(
+    private readonly pocService: PocService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Post('scaffold')
-  scaffold(@Body() body: ScaffoldPocDto) {
-    return this.pocService.scaffoldWithLlm(
-      body.description,
-      body.endpointUrl,
-      body.apiKey,
-      body.model,
-    );
+  async scaffold(@Body() body: ScaffoldPocDto) {
+    let endpointUrl = body.endpointUrl;
+    let apiKey = body.apiKey;
+    let model = body.model;
+
+    if (body.globalProviderId) {
+      const provider = await this.prisma.llmConnection.findFirst({
+        where: { id: body.globalProviderId, pocConfigId: null },
+      });
+      if (!provider) throw new BadRequestException('Global provider not found');
+      endpointUrl = provider.endpointUrl;
+      apiKey = provider.apiKey ?? undefined;
+      model = model || provider.model;
+    }
+
+    if (!endpointUrl) throw new BadRequestException('endpointUrl is required');
+
+    return this.pocService.scaffoldWithLlm(body.description, endpointUrl, apiKey, model);
   }
 
   @Get()

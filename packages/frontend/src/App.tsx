@@ -5,6 +5,7 @@ import { PocEditor } from './pages/PocEditor';
 import { LlmConnect } from './pages/LlmConnect';
 import { EvalResults } from './pages/EvalResults';
 import { Chat } from './pages/Chat';
+import { GlobalSettings } from './pages/GlobalSettings';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
             <Route path="/poc/:id/llm" element={<LlmConnect />} />
             <Route path="/poc/:id/evals" element={<EvalResults />} />
             <Route path="/poc/:id/chat" element={<Chat />} />
+            <Route path="/settings" element={<GlobalSettings />} />
           </Routes>
         </main>
       </div>

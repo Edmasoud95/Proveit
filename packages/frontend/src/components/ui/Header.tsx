@@ -18,6 +18,11 @@ export function Header() {
           <span className="text-gray-300">Current</span>
         </span>
       )}
+      <div className="ml-auto">
+        <Link to="/settings" className="text-sm text-muted hover:text-gray-300 transition-colors">
+          Settings
+        </Link>
+      </div>
     </header>
   );
 }

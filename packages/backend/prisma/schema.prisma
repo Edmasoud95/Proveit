@@ -58,7 +58,7 @@ model EvalResult {
 
 model LlmConnection {
   id              String    @id @default(uuid())
-  pocConfigId     String
+  pocConfigId     String?
   name            String    @default("Default")
   isDefault       Boolean   @default(false)
   endpointUrl     String
@@ -68,7 +68,7 @@ model LlmConnection {
   lastCheckedAt   DateTime?
   availableModels String?
 
-  pocConfig          PocConfig           @relation(fields: [pocConfigId], references: [id], onDelete: Cascade)
+  pocConfig          PocConfig?          @relation(fields: [pocConfigId], references: [id], onDelete: Cascade)
   taskModelOverrides TaskModelOverride[]
 
   @@index([pocConfigId])

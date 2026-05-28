@@ -1,4 +1,4 @@
-import { Controller, Put, Post, Get, Patch, Delete, Body, Param, HttpCode } from '@nestjs/common';
+import { Controller, Put, Post, Get, Patch, Delete, Body, Param, HttpCode, HttpStatus } from '@nestjs/common';
 import { LlmService } from './llm.service';
 import { CreateProviderDto } from './dto/create-provider.dto';
 import { UpdateProviderDto } from './dto/update-provider.dto';
@@ -15,8 +15,8 @@ export class LlmRootController {
   constructor(private readonly llmService: LlmService) {}
 
   @Post('models')
-  fetchModels(@Body() dto: { endpointUrl: string; apiKey?: string }) {
-    return this.llmService.fetchModelsFromUrl(dto.endpointUrl, dto.apiKey);
+  fetchModels(@Body() dto: { endpointUrl?: string; apiKey?: string; globalProviderId?: string }) {
+    return this.llmService.fetchModels(dto.endpointUrl, dto.apiKey, dto.globalProviderId);
   }
 }
 
@@ -104,5 +104,41 @@ export class LlmController {
   @Get()
   getConnection(@Param('pocId') pocId: string) {
     return this.llmService.getConnection(pocId);
+  }
+}
+
+@Controller('llm/global-providers')
+export class LlmGlobalController {
+  constructor(private readonly llmService: LlmService) {}
+
+  @Get()
+  list() {
+    return this.llmService.listGlobalProviders();
+  }
+
+  @Post()
+  create(@Body() dto: CreateProviderDto) {
+    return this.llmService.createGlobalProvider(dto);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateProviderDto) {
+    return this.llmService.updateGlobalProvider(id, dto);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  delete(@Param('id') id: string) {
+    return this.llmService.deleteGlobalProvider(id);
+  }
+
+  @Post(':id/test')
+  test(@Param('id') id: string) {
+    return this.llmService.testGlobalProvider(id);
+  }
+
+  @Post(':id/default')
+  setDefault(@Param('id') id: string) {
+    return this.llmService.setGlobalDefault(id);
   }
 }

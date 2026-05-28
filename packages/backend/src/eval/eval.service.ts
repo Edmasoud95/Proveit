@@ -687,15 +687,16 @@ export class EvalService implements OnModuleInit {
     return this.addCases(pocId, parsed.slice(0, count));
   }
 
-  async generateStubs(pocId: string, overwrite: boolean) {
+  async generateStubs(pocId: string, overwrite: boolean, toolNames?: string[]) {
     const poc = await this.prisma.pocConfig.findUnique({ where: { id: pocId } });
     if (!poc) throw new NotFoundException('POC not found');
 
     const tools: ToolDefinition[] = JSON.parse(poc.tools);
     if (tools.length === 0) throw new BadRequestException('No tools defined on this POC');
 
-    const toolsToGenerate = overwrite ? tools : tools.filter((t) => !t.mockResponse);
-    const skipped = tools.filter((t) => !overwrite && t.mockResponse).map((t) => t.name);
+    const eligible = toolNames?.length ? tools.filter((t) => toolNames.includes(t.name)) : tools;
+    const toolsToGenerate = overwrite ? eligible : eligible.filter((t) => !t.mockResponse);
+    const skipped = tools.filter((t) => !toolsToGenerate.find((g) => g.name === t.name)).map((t) => t.name);
 
     if (toolsToGenerate.length === 0) {
       return { generated: [], skipped, failed: [] };

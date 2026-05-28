@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ToolDefinition } from '@proveit/shared';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Card } from '../ui/Card';
+import { ToolStubButton } from './ToolStubButton';
 
 function isValidJson(value: string): boolean {
   if (!value.trim()) return true;
@@ -10,14 +11,24 @@ function isValidJson(value: string): boolean {
 }
 
 interface ToolsEditorProps {
+  pocId: string;
   tools: ToolDefinition[];
   onSave: (tools: ToolDefinition[]) => Promise<void>;
 }
 
-export function ToolsEditor({ tools, onSave }: ToolsEditorProps) {
+export function ToolsEditor({ pocId, tools, onSave }: ToolsEditorProps) {
   const [draft, setDraft] = useState(tools);
   const [saving, setSaving] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    setDraft((prev) =>
+      prev.map((d) => {
+        const fresh = tools.find((t) => t.name === d.name);
+        return fresh ? { ...d, mockResponse: fresh.mockResponse } : d;
+      }),
+    );
+  }, [tools]);
   const hasJsonError = draft.some((t) => t.mockResponse !== undefined && !isValidJson(t.mockResponse));
 
   async function handleSave() {
@@ -53,6 +64,7 @@ export function ToolsEditor({ tools, onSave }: ToolsEditorProps) {
   function removeTool(idx: number) {
     setDraft((prev) => prev.filter((_, i) => i !== idx));
   }
+
 
   return (
     <div className="flex flex-col gap-4">
@@ -110,10 +122,13 @@ export function ToolsEditor({ tools, onSave }: ToolsEditorProps) {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm text-gray-300 font-medium flex items-center gap-2">
-                  Mock response
-                  <span className="text-xs text-muted font-normal">— returned to agent on tool call</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm text-gray-300 font-medium flex items-center gap-2">
+                    Mock response
+                    <span className="text-xs text-muted font-normal">— returned to agent on tool call</span>
+                  </label>
+                  <ToolStubButton pocId={pocId} tool={tool} />
+                </div>
                 <textarea
                   value={tool.mockResponse ?? ''}
                   onChange={(e) => updateTool(idx, 'mockResponse', e.target.value)}

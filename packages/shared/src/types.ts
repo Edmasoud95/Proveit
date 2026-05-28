@@ -131,7 +131,7 @@ export interface CompareRunsResponse {
 
 export interface LlmConnection {
   id: string;
-  pocConfigId: string;
+  pocConfigId?: string;
   endpointUrl: string;
   model: string;
   isActive: boolean;
@@ -140,7 +140,8 @@ export interface LlmConnection {
 
 export interface LlmProvider {
   id: string;
-  pocConfigId: string;
+  pocConfigId?: string;
+  isGlobal?: boolean;
   name: string;
   isDefault: boolean;
   endpointUrl: string;
