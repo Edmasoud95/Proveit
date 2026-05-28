@@ -10,6 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@assistant-ui/react": "^0.14.11",
+    "@assistant-ui/react-markdown": "^0.14.1",
     "@proveit/shared": "workspace:*",
     "@tanstack/react-query": "^5.28.0",
     "react": "^18.3.0",

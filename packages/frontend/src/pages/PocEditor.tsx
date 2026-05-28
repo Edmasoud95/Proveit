@@ -77,6 +77,13 @@ export function PocEditor() {
             LLM settings
           </Link>
           <Link
+            to={`/poc/${poc.id}/chat`}
+            className="px-3 py-1.5 text-sm rounded-lg bg-surface-overlay border border-border text-gray-200
+              hover:bg-surface-raised transition-colors"
+          >
+            Chat
+          </Link>
+          <Link
             to={`/poc/${poc.id}/evals`}
             className="px-3 py-1.5 text-sm rounded-lg bg-accent hover:bg-accent-hover text-white transition-colors"
           >
