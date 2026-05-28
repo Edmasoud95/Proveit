@@ -118,9 +118,10 @@ export function PocEditor() {
         {tab === 'tools' && (
           <div className="flex flex-col gap-4">
             <div className="flex justify-end">
-              <GenerateStubsButton pocId={poc.id} />
+              <GenerateStubsButton pocId={poc.id} tools={poc.tools} />
             </div>
             <ToolsEditor
+              pocId={poc.id}
               tools={poc.tools}
               onSave={async (tools) => { await updateMutation.mutateAsync({ tools }); }}
             />

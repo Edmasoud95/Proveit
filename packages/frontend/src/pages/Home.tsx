@@ -11,9 +11,10 @@ import { useToast } from '../components/ui/Toast';
 
 interface CreatePocPayload {
   description: string;
-  endpointUrl: string;
+  endpointUrl?: string;
   apiKey?: string;
   model?: string;
+  globalProviderId?: string;
 }
 
 export function Home() {

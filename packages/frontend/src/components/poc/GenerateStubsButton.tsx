@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { ToolDefinition } from '@proveit/shared';
 import { api } from '../../services/api';
 import { Button } from '../ui/Button';
 import { Sparkle } from '../ui/Sparkle';
@@ -7,6 +8,7 @@ import { useToast } from '../ui/Toast';
 
 interface GenerateStubsButtonProps {
   pocId: string;
+  tools: ToolDefinition[];
 }
 
 interface GenerateStubsResult {
@@ -15,27 +17,33 @@ interface GenerateStubsResult {
   failed: string[];
 }
 
-export function GenerateStubsButton({ pocId }: GenerateStubsButtonProps) {
+function isEmpty(r?: string): boolean {
+  return !r || r.trim() === '';
+}
+
+export function GenerateStubsButton({ pocId, tools }: GenerateStubsButtonProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [confirming, setConfirming] = useState(false);
-  const [checking, setChecking] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
+  const emptyCount = tools.filter((t) => isEmpty(t.mockResponse)).length;
+
   const generateMutation = useMutation({
-    mutationFn: (overwrite: boolean) =>
-      api.post<GenerateStubsResult>(`/pocs/${pocId}/tools/stubs/generate`, { overwrite }),
+    mutationFn: () =>
+      api.post<GenerateStubsResult>(`/pocs/${pocId}/tools/stubs/generate`, { overwrite: false }),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['poc', pocId] });
       const parts: string[] = [];
       if (result.generated.length) parts.push(`${result.generated.length} stubs generated`);
       if (result.failed.length) parts.push(`${result.failed.length} failed (${result.failed.join(', ')})`);
       toast(parts.join(', ') || 'No stubs generated', result.failed.length ? 'error' : 'success');
-      setConfirming(false);
+    },
+    onError: (err) => {
+      toast(err instanceof Error ? err.message : 'Failed to generate stubs', 'error');
     },
   });
 
-  const isLoading = checking || generateMutation.isPending;
+  const isLoading = generateMutation.isPending;
 
   useEffect(() => {
     if (!isLoading) {
@@ -48,76 +56,25 @@ export function GenerateStubsButton({ pocId }: GenerateStubsButtonProps) {
     return () => clearInterval(id);
   }, [isLoading]);
 
-  async function handleClick() {
-    setChecking(true);
-    try {
-      const result = await api.post<GenerateStubsResult>(`/pocs/${pocId}/tools/stubs/generate`, { overwrite: false });
-      if (result.skipped.length > 0) {
-        setConfirming(true);
-      } else {
-        queryClient.invalidateQueries({ queryKey: ['poc', pocId] });
-        const parts: string[] = [];
-        if (result.generated.length) parts.push(`${result.generated.length} stubs generated`);
-        if (result.failed.length) parts.push(`${result.failed.length} failed (${result.failed.join(', ')})`);
-        toast(parts.join(', ') || 'No stubs generated', result.failed.length ? 'error' : 'success');
-      }
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to generate stubs', 'error');
-    } finally {
-      setChecking(false);
-    }
-  }
-
-  const phase = checking ? 'Checking existing stubs…' : 'Generating mock responses…';
-
-  const statusPanel = isLoading && (
-    <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-overlay border border-border text-xs">
-      <span className="w-3 h-3 shrink-0 border border-accent border-t-transparent rounded-full animate-spin" />
-      <span className="text-gray-300">{phase}</span>
-      <span className="ml-auto tabular-nums text-muted">{elapsed}s</span>
-    </div>
-  );
-
-  if (confirming) {
-    return (
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted">Some tools already have stubs. Regenerate all?</span>
-          <button
-            onClick={() => generateMutation.mutate(true)}
-            disabled={generateMutation.isPending}
-            className="px-2 py-1 text-xs rounded bg-accent hover:bg-accent-hover text-white transition-colors disabled:opacity-50 flex items-center gap-1"
-          >
-            {generateMutation.isPending && (
-              <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
-            )}
-            {generateMutation.isPending ? 'Generating…' : 'Yes, regenerate'}
-          </button>
-          <button
-            onClick={() => setConfirming(false)}
-            disabled={generateMutation.isPending}
-            className="px-2 py-1 text-xs rounded bg-surface-overlay border border-border text-gray-300 hover:text-white transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-        </div>
-        {statusPanel}
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-2">
       <Button
         variant="secondary"
         size="sm"
-        onClick={handleClick}
+        onClick={() => generateMutation.mutate()}
         loading={isLoading}
-        disabled={isLoading}
+        disabled={isLoading || emptyCount === 0}
       >
-        <Sparkle /> {isLoading ? (checking ? 'Checking…' : 'Generating…') : 'Generate stubs'}
+        <Sparkle />
+        {isLoading ? 'Generating…' : `Generate stubs${emptyCount > 0 ? ` (${emptyCount})` : ''}`}
       </Button>
-      {statusPanel}
+      {isLoading && (
+        <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-overlay border border-border text-xs">
+          <span className="w-3 h-3 shrink-0 border border-accent border-t-transparent rounded-full animate-spin" />
+          <span className="text-gray-300">Generating mock responses…</span>
+          <span className="ml-auto tabular-nums text-muted">{elapsed}s</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,19 +1,12 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { LlmProvider, LlmRoutingConfig, TaskType } from '@proveit/shared';
+import type { LlmProvider } from '@proveit/shared';
 import { api } from '../services/api';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { useToast } from '../components/ui/Toast';
-
-const TASK_TYPES: { type: TaskType; label: string }[] = [
-  { type: 'agent', label: 'Agent (eval runs)' },
-  { type: 'judge', label: 'Judge (scoring)' },
-  { type: 'eval-gen', label: 'Eval Generation' },
-  { type: 'stub-gen', label: 'Stub Generation' },
-];
 
 type ProviderForm = { name: string; endpointUrl: string; apiKey: string; model: string };
 const emptyForm = (): ProviderForm => ({ name: '', endpointUrl: 'http://localhost:1234/v1', apiKey: '', model: '' });
@@ -28,37 +21,23 @@ function StatusDot({ isActive, tested }: { isActive: boolean; tested: boolean })
   );
 }
 
-export function LlmConnect() {
-  const { id } = useParams<{ id: string }>();
+export function GlobalSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { data: providers = [], isLoading } = useQuery({
-    queryKey: ['providers', id],
-    queryFn: () => api.get<LlmProvider[]>(`/pocs/${id}/llm/providers`),
-    enabled: !!id,
+    queryKey: ['global-providers'],
+    queryFn: () => api.get<LlmProvider[]>('/llm/global-providers'),
   });
 
-  const { data: routing } = useQuery({
-    queryKey: ['routing', id],
-    queryFn: () => api.get<LlmRoutingConfig>(`/pocs/${id}/llm/routing`),
-    enabled: !!id,
-  });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['global-providers'] });
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['providers', id] });
-    queryClient.invalidateQueries({ queryKey: ['routing', id] });
-  };
-
-  // ─── Provider form state ──────────────────────────────────────────────────
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState<ProviderForm>(emptyForm());
   const [formModels, setFormModels] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
-
-  const [showRouting, setShowRouting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   function openAdd() {
@@ -85,7 +64,7 @@ export function LlmConnect() {
     if (!form.endpointUrl) return;
     setFetchingModels(true);
     try {
-      const { models } = await api.post<{ models: string[] }>(`/pocs/${id}/llm/models`, {
+      const { models } = await api.post<{ models: string[] }>('/llm/models', {
         endpointUrl: form.endpointUrl,
         apiKey: form.apiKey || undefined,
       });
@@ -100,7 +79,7 @@ export function LlmConnect() {
 
   const createMutation = useMutation({
     mutationFn: (dto: ProviderForm) =>
-      api.post<LlmProvider>(`/pocs/${id}/llm/providers`, {
+      api.post<LlmProvider>('/llm/global-providers', {
         name: dto.name,
         endpointUrl: dto.endpointUrl,
         apiKey: dto.apiKey || undefined,
@@ -112,7 +91,7 @@ export function LlmConnect() {
 
   const updateMutation = useMutation({
     mutationFn: ({ pid, dto }: { pid: string; dto: Partial<ProviderForm> }) =>
-      api.patch<LlmProvider>(`/pocs/${id}/llm/providers/${pid}`, {
+      api.patch<LlmProvider>(`/llm/global-providers/${pid}`, {
         name: dto.name,
         endpointUrl: dto.endpointUrl,
         apiKey: dto.apiKey || undefined,
@@ -123,7 +102,7 @@ export function LlmConnect() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (pid: string) => api.delete(`/pocs/${id}/llm/providers/${pid}`),
+    mutationFn: (pid: string) => api.delete(`/llm/global-providers/${pid}`),
     onSuccess: () => { setDeletingId(null); invalidate(); },
     onError: (err) => {
       setDeletingId(null);
@@ -137,7 +116,7 @@ export function LlmConnect() {
   });
 
   const setDefaultMutation = useMutation({
-    mutationFn: (pid: string) => api.post<LlmProvider>(`/pocs/${id}/llm/providers/${pid}/default`, {}),
+    mutationFn: (pid: string) => api.post<LlmProvider>(`/llm/global-providers/${pid}/default`, {}),
     onSuccess: () => invalidate(),
     onError: (err) => toast(err instanceof Error ? err.message : 'Failed to set default', 'error'),
   });
@@ -146,7 +125,7 @@ export function LlmConnect() {
     setTestingId(pid);
     try {
       const result = await api.post<{ status: string; models?: string[]; error?: string }>(
-        `/pocs/${id}/llm/providers/${pid}/test`,
+        `/llm/global-providers/${pid}/test`,
         {},
       );
       if (result.status === 'connected') {
@@ -174,20 +153,6 @@ export function LlmConnect() {
     }
   }
 
-  // ─── Routing mutations ────────────────────────────────────────────────────
-  const setRoutingMutation = useMutation({
-    mutationFn: ({ taskType, connectionId, model }: { taskType: string; connectionId: string; model: string }) =>
-      api.put(`/pocs/${id}/llm/routing/${taskType}`, { connectionId, model }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['routing', id] }),
-    onError: (err) => toast(err instanceof Error ? err.message : 'Failed to update routing', 'error'),
-  });
-
-  const clearRoutingMutation = useMutation({
-    mutationFn: (taskType: string) => api.delete(`/pocs/${id}/llm/routing/${taskType}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['routing', id] }),
-    onError: (err) => toast(err instanceof Error ? err.message : 'Failed to clear routing', 'error'),
-  });
-
   const activeCount = providers.filter((p) => p.isActive).length;
 
   return (
@@ -195,13 +160,13 @@ export function LlmConnect() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">LLM Settings</h1>
+          <h1 className="text-xl font-bold text-white">Global LLM Providers</h1>
           <p className="text-sm text-muted mt-0.5">
-            Connect one or more OpenAI-compatible endpoints for this POC.
+            Providers configured here are available as fallbacks for all POCs.
           </p>
         </div>
-        <Link to={`/poc/${id}`} className="text-sm text-muted hover:text-gray-300 transition-colors">
-          ← Back to POC
+        <Link to="/" className="text-sm text-muted hover:text-gray-300 transition-colors">
+          ← Back
         </Link>
       </div>
 
@@ -220,13 +185,11 @@ export function LlmConnect() {
           )}
         </div>
 
-        {isLoading && (
-          <p className="text-sm text-muted">Loading…</p>
-        )}
+        {isLoading && <p className="text-sm text-muted">Loading…</p>}
 
         {!isLoading && providers.length === 0 && !showAddForm && (
           <div className="py-6 text-center text-sm text-muted">
-            No providers configured.{' '}
+            No global providers configured.{' '}
             <button type="button" onClick={openAdd} className="text-accent hover:underline">
               Add one to get started.
             </button>
@@ -252,7 +215,6 @@ export function LlmConnect() {
                   <p className="text-xs text-muted truncate">{p.endpointUrl} · {p.model}</p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Test */}
                   <button
                     type="button"
                     onClick={() => handleTestProvider(p.id)}
@@ -263,7 +225,6 @@ export function LlmConnect() {
                       <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin inline-block" />
                     ) : 'Test'}
                   </button>
-                  {/* Set default */}
                   {!p.isDefault && (
                     <button
                       type="button"
@@ -277,7 +238,6 @@ export function LlmConnect() {
                   {p.isDefault && (
                     <span className="px-2 py-1 text-xs text-amber-400" title="Default provider">★</span>
                   )}
-                  {/* Edit */}
                   <button
                     type="button"
                     onClick={() => openEdit(p)}
@@ -285,7 +245,6 @@ export function LlmConnect() {
                   >
                     Edit
                   </button>
-                  {/* Delete */}
                   {deletingId === p.id ? (
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-gray-400">Delete?</span>
@@ -403,142 +362,13 @@ export function LlmConnect() {
         )}
       </Card>
 
-      {/* Global providers (read-only) */}
-      {(routing?.providers ?? []).some((p) => p.isGlobal) && (
-        <Card className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-300">Global providers</h2>
-            <Link to="/settings" className="text-xs text-accent hover:text-accent/80 transition-colors">
-              Manage in Settings →
-            </Link>
-          </div>
-          <p className="text-xs text-muted -mt-1">
-            Available as fallbacks for all POCs. Used when no POC-specific default is configured.
-          </p>
-          <div className="flex flex-col divide-y divide-border">
-            {(routing?.providers ?? []).filter((p) => p.isGlobal).map((p) => (
-              <div key={p.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                <StatusDot isActive={p.isActive} tested={!!p.lastCheckedAt} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-300">{p.name}</span>
-                    {p.isDefault && (
-                      <span className="text-xs bg-accent/20 text-accent px-1.5 py-0.5 rounded font-medium">
-                        global default
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted truncate">{p.endpointUrl} · {p.model}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Advanced model routing */}
-      {(routing?.providers ?? []).length > 0 && (
-        <Card className="flex flex-col gap-3">
-          <button
-            type="button"
-            onClick={() => setShowRouting((v) => !v)}
-            className="flex items-center justify-between w-full text-left"
-          >
-            <span className="text-sm font-semibold text-gray-300">Advanced model routing</span>
-            <span className="text-xs text-muted">{showRouting ? '▾' : '▸'}</span>
-          </button>
-
-          {showRouting && (
-            <div className="flex flex-col gap-0 border-t border-border pt-3">
-              <p className="text-xs text-muted mb-3">
-                Override which provider and model handles each task type. Leave at "Default" to use the default provider.
-              </p>
-              {TASK_TYPES.map(({ type, label }) => {
-                const allProviders = routing?.providers ?? [];
-                const override = routing?.overrides.find((o) => o.taskType === type);
-                const selectedProvider = override
-                  ? allProviders.find((p) => p.id === override.connectionId)
-                  : null;
-                const isOverrideInactive = selectedProvider && !selectedProvider.isActive && !!selectedProvider.lastCheckedAt;
-
-                return (
-                  <div key={type} className="flex items-center gap-3 py-2.5 border-b border-border last:border-0">
-                    <span className="text-sm text-gray-400 w-40 shrink-0">{label}</span>
-                    <select
-                      value={override?.connectionId ?? ''}
-                      onChange={(e) => {
-                        const connId = e.target.value;
-                        if (!connId) {
-                          clearRoutingMutation.mutate(type);
-                        } else {
-                          const provider = allProviders.find((p) => p.id === connId);
-                          const defaultModel = provider?.model ?? '';
-                          setRoutingMutation.mutate({ taskType: type, connectionId: connId, model: override?.connectionId === connId ? (override?.model ?? defaultModel) : defaultModel });
-                        }
-                      }}
-                      className="flex-1 bg-surface-overlay border border-border rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-accent/60"
-                    >
-                      <option value="">Default</option>
-                      {allProviders.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name}{p.isGlobal ? ' (global)' : ''}</option>
-                      ))}
-                    </select>
-                    {override && (
-                      <>
-                        {selectedProvider?.availableModels && selectedProvider.availableModels.length > 0 ? (
-                          <select
-                            value={override.model}
-                            onChange={(e) =>
-                              setRoutingMutation.mutate({ taskType: type, connectionId: override.connectionId, model: e.target.value })
-                            }
-                            className="flex-1 bg-surface-overlay border border-border rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-accent/60"
-                          >
-                            {selectedProvider.availableModels.map((m) => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input
-                            value={override.model}
-                            onChange={(e) =>
-                              setRoutingMutation.mutate({ taskType: type, connectionId: override.connectionId, model: e.target.value })
-                            }
-                            placeholder="model name"
-                            className="flex-1 bg-surface-overlay border border-border rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-accent/60"
-                          />
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => clearRoutingMutation.mutate(type)}
-                          title="Clear override"
-                          className="text-gray-500 hover:text-red-400 transition-colors text-sm px-1"
-                        >
-                          ×
-                        </button>
-                      </>
-                    )}
-                    {isOverrideInactive && (
-                      <span title="Provider unreachable" className="text-amber-400 text-sm">⚠</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* Status summary */}
       {activeCount > 0 && !showAddForm && (
         <div className="bg-green-900/10 border border-green-800/40 rounded-xl p-4">
           <p className="text-sm text-green-300 font-medium">
             ✓ {activeCount} provider{activeCount > 1 ? 's' : ''} connected
           </p>
           <p className="text-xs text-green-500 mt-0.5">
-            Ready to scaffold and run evals.{' '}
-            <Link to={`/poc/${id}/evals`} className="underline hover:text-green-300">
-              Run evals →
-            </Link>
+            These providers are available as fallbacks in all POCs.
           </p>
         </div>
       )}

@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { LlmProvider } from '@proveit/shared';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Sparkle } from '../ui/Sparkle';
@@ -6,7 +8,7 @@ import { useToast } from '../ui/Toast';
 import { api } from '../../services/api';
 
 interface CreatePocFormProps {
-  onSubmit: (data: { description: string; endpointUrl: string; apiKey?: string; model?: string }) => Promise<void>;
+  onSubmit: (data: { description: string; endpointUrl?: string; apiKey?: string; model?: string; globalProviderId?: string }) => Promise<void>;
   loading?: boolean;
 }
 
@@ -18,15 +20,23 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [models, setModels] = useState<string[]>([]);
+  const [selectedGlobalId, setSelectedGlobalId] = useState<string>('manual');
   const { toast } = useToast();
+
+  const { data: globalProviders = [] } = useQuery({
+    queryKey: ['global-providers'],
+    queryFn: () => api.get<LlmProvider[]>('/llm/global-providers'),
+  });
+
+  const usingGlobal = selectedGlobalId !== 'manual' && globalProviders.some((p) => p.id === selectedGlobalId);
 
   async function handleLoadModels() {
     setLoadingModels(true);
     try {
-      const { models: fetched } = await api.post<{ models: string[] }>('/llm/models', {
-        endpointUrl,
-        apiKey: apiKey || undefined,
-      });
+      const { models: fetched } = await api.post<{ models: string[] }>('/llm/models', usingGlobal
+        ? { globalProviderId: selectedGlobalId }
+        : { endpointUrl, apiKey: apiKey || undefined },
+      );
       setModels(fetched);
       if (fetched.length === 0) toast('No models found at this endpoint', 'info');
       else if (!model) setModel(fetched[0]);
@@ -42,9 +52,10 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
     if (!description.trim() || description.trim().length < 10) return;
     await onSubmit({
       description: description.trim(),
-      endpointUrl,
-      apiKey: apiKey || undefined,
+      endpointUrl: usingGlobal ? undefined : endpointUrl,
+      apiKey: usingGlobal ? undefined : (apiKey || undefined),
       model: model || undefined,
+      globalProviderId: usingGlobal ? selectedGlobalId : undefined,
     });
     setDescription('');
   }
@@ -84,14 +95,46 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
         </button>
         {showAdvanced && (
           <div className="flex flex-col gap-3 pl-3 border-l border-border">
-            <Input
-              label="API key (optional)"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-… (leave empty for local LLMs)"
-              disabled={loading}
-            />
+            {globalProviders.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted shrink-0">LLM source:</span>
+                <select
+                  value={selectedGlobalId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedGlobalId(val);
+                    if (val === 'manual') return;
+                    const p = globalProviders.find((gp) => gp.id === val);
+                    if (p) {
+                      setEndpointUrl(p.endpointUrl);
+                      setModel(p.model);
+                      setApiKey('');
+                      setModels([]);
+                    }
+                  }}
+                  disabled={loading}
+                  className="flex-1 bg-surface-overlay border border-border rounded-lg px-2 py-1.5 text-xs text-gray-300
+                    focus:outline-none focus:border-accent/60 disabled:opacity-40"
+                >
+                  <option value="manual">Manual</option>
+                  {globalProviders.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} — {p.model}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {!usingGlobal && (
+              <Input
+                label="API key (optional)"
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk-… (leave empty for local LLMs)"
+                disabled={loading}
+              />
+            )}
             <div className="flex flex-col gap-1.5">
               <label className="text-sm text-gray-300 font-medium">Model (optional)</label>
               <div className="flex gap-2">
