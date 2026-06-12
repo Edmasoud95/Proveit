@@ -180,6 +180,8 @@ export interface LlmProvider {
   isActive: boolean;
   lastCheckedAt?: string;
   availableModels?: string[];
+  hasApiKey?: boolean;
+  apiKeyHint?: string;
 }
 
 export type TaskType = 'agent' | 'judge' | 'eval-gen' | 'stub-gen';

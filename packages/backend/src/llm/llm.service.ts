@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { CreateProviderDto } from './dto/create-provider.dto';
 import { UpdateProviderDto } from './dto/update-provider.dto';
 import type { LlmProvider, LlmRoutingConfig, TaskModelOverride, TaskType } from '@proveit/shared';
@@ -9,13 +10,28 @@ const VALID_TASK_TYPES: TaskType[] = ['agent', 'judge', 'eval-gen', 'stub-gen'];
 
 @Injectable()
 export class LlmService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private crypto: CryptoService,
+  ) {}
 
   getClient(endpointUrl: string, apiKey?: string): OpenAI {
     return new OpenAI({
       baseURL: endpointUrl,
       apiKey: apiKey ?? 'not-required',
     });
+  }
+
+  /** Fields to persist for an incoming plaintext API key (encrypts + hint). */
+  private encryptKey(apiKey: string | undefined | null): { apiKey: string | null | undefined; apiKeyHint: string | null } {
+    return apiKey
+      ? { apiKey: this.crypto.encrypt(apiKey), apiKeyHint: apiKey.slice(-4) }
+      : { apiKey, apiKeyHint: null };
+  }
+
+  /** Decrypts a stored key for use in an outbound LLM call. */
+  private decryptKey(apiKey: string | null): string | undefined {
+    return apiKey ? this.crypto.decrypt(apiKey) : undefined;
   }
 
   // ─── Provider CRUD ────────────────────────────────────────────────────────
@@ -35,7 +51,7 @@ export class LlmService {
         pocConfigId: pocId,
         name: dto.name,
         endpointUrl: dto.endpointUrl,
-        apiKey: dto.apiKey,
+        ...this.encryptKey(dto.apiKey),
         model: dto.model,
         isDefault: existingCount === 0,
       },
@@ -51,7 +67,7 @@ export class LlmService {
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.endpointUrl !== undefined && { endpointUrl: dto.endpointUrl, isActive: false }),
-        ...(dto.apiKey !== undefined && { apiKey: dto.apiKey, isActive: false }),
+        ...(dto.apiKey !== undefined && { ...this.encryptKey(dto.apiKey), isActive: false }),
         ...(dto.model !== undefined && { model: dto.model }),
       },
     });
@@ -79,7 +95,7 @@ export class LlmService {
     const conn = await this.prisma.llmConnection.findFirst({ where: { id, pocConfigId: pocId } });
     if (!conn) throw new NotFoundException('Provider not found');
 
-    const client = this.getClient(conn.endpointUrl, conn.apiKey ?? undefined);
+    const client = this.getClient(conn.endpointUrl, this.decryptKey(conn.apiKey));
     const start = Date.now();
     try {
       const response = await client.models.list();
@@ -166,7 +182,7 @@ export class LlmService {
     if (!conn) throw new NotFoundException('No default LLM provider configured. Add a provider on the LLM Settings page or in Global Settings.');
     const model = override ? override.model : conn.model;
     return {
-      client: this.getClient(conn.endpointUrl, conn.apiKey ?? undefined),
+      client: this.getClient(conn.endpointUrl, this.decryptKey(conn.apiKey)),
       model,
       connectionId: conn.id,
       providerName: conn.name,
@@ -183,11 +199,11 @@ export class LlmService {
     if (existing) {
       return this.prisma.llmConnection.update({
         where: { id: existing.id },
-        data: { endpointUrl, model, apiKey: apiKey ?? existing.apiKey, isActive: false },
+        data: { endpointUrl, model, ...(apiKey !== undefined ? this.encryptKey(apiKey) : {}), isActive: false },
       });
     }
     return this.prisma.llmConnection.create({
-      data: { pocConfigId: pocId, name: 'Default', isDefault: true, endpointUrl, model, apiKey },
+      data: { pocConfigId: pocId, name: 'Default', isDefault: true, endpointUrl, model, ...this.encryptKey(apiKey) },
     });
   }
 
@@ -207,7 +223,7 @@ export class LlmService {
   async getModels(pocId: string) {
     const conn = await this.prisma.llmConnection.findFirst({ where: { pocConfigId: pocId, isDefault: true } });
     if (!conn) throw new NotFoundException('No LLM connection configured');
-    const client = this.getClient(conn.endpointUrl, conn.apiKey ?? undefined);
+    const client = this.getClient(conn.endpointUrl, this.decryptKey(conn.apiKey));
     try {
       const response = await client.models.list();
       return { models: response.data.map((m) => m.id) };
@@ -232,7 +248,7 @@ export class LlmService {
     if (globalProviderId) {
       const conn = await this.prisma.llmConnection.findFirst({ where: { id: globalProviderId, pocConfigId: null } });
       if (!conn) throw new NotFoundException('Global provider not found');
-      return this.fetchModelsFromUrl(conn.endpointUrl, conn.apiKey ?? undefined);
+      return this.fetchModelsFromUrl(conn.endpointUrl, this.decryptKey(conn.apiKey));
     }
     if (!endpointUrl) throw new NotFoundException('endpointUrl is required');
     return this.fetchModelsFromUrl(endpointUrl, apiKey);
@@ -257,7 +273,7 @@ export class LlmService {
         pocConfigId: null,
         name: dto.name,
         endpointUrl: dto.endpointUrl,
-        apiKey: dto.apiKey,
+        ...this.encryptKey(dto.apiKey),
         model: dto.model,
         isDefault: existingCount === 0,
       },
@@ -273,7 +289,7 @@ export class LlmService {
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.endpointUrl !== undefined && { endpointUrl: dto.endpointUrl, isActive: false }),
-        ...(dto.apiKey !== undefined && { apiKey: dto.apiKey, isActive: false }),
+        ...(dto.apiKey !== undefined && { ...this.encryptKey(dto.apiKey), isActive: false }),
         ...(dto.model !== undefined && { model: dto.model }),
       },
     });
@@ -301,7 +317,7 @@ export class LlmService {
     const conn = await this.prisma.llmConnection.findFirst({ where: { id, pocConfigId: null } });
     if (!conn) throw new NotFoundException('Global provider not found');
 
-    const client = this.getClient(conn.endpointUrl, conn.apiKey ?? undefined);
+    const client = this.getClient(conn.endpointUrl, this.decryptKey(conn.apiKey));
     const start = Date.now();
     try {
       const response = await client.models.list();
@@ -337,7 +353,7 @@ export class LlmService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private toProvider(conn: { id: string; pocConfigId: string | null; name: string; isDefault: boolean; endpointUrl: string; model: string; isActive: boolean; lastCheckedAt: Date | null; availableModels: string | null }): LlmProvider {
+  private toProvider(conn: { id: string; pocConfigId: string | null; name: string; isDefault: boolean; endpointUrl: string; apiKey?: string | null; apiKeyHint?: string | null; model: string; isActive: boolean; lastCheckedAt: Date | null; availableModels: string | null }): LlmProvider {
     return {
       id: conn.id,
       pocConfigId: conn.pocConfigId ?? undefined,
@@ -349,6 +365,8 @@ export class LlmService {
       isActive: conn.isActive,
       lastCheckedAt: conn.lastCheckedAt?.toISOString(),
       availableModels: conn.availableModels ? JSON.parse(conn.availableModels) : undefined,
+      hasApiKey: !!conn.apiKey,
+      apiKeyHint: conn.apiKeyHint ?? undefined,
     };
   }
 }

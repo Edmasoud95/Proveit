@@ -18,6 +18,7 @@ import { PocService } from './poc.service';
 import { CreatePocDto } from './dto/create-poc.dto';
 import { UpdatePocDto } from './dto/update-poc.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { CryptoService } from '../crypto/crypto.service';
 
 class ScaffoldPocDto {
   description!: string;
@@ -32,6 +33,7 @@ export class PocController {
   constructor(
     private readonly pocService: PocService,
     private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
   ) {}
 
   @Post('scaffold')
@@ -47,7 +49,7 @@ export class PocController {
       });
       if (!provider) throw new BadRequestException('Global provider not found');
       endpointUrl = provider.endpointUrl;
-      apiKey = provider.apiKey ?? undefined;
+      apiKey = provider.apiKey ? this.crypto.decrypt(provider.apiKey) : undefined;
       model = model || provider.model;
     }
 
