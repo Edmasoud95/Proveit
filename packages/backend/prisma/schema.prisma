@@ -7,6 +7,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id           String      @id @default(uuid())
+  username     String      @unique
+  passwordHash String
+  role         String      @default("member") // "admin" | "member"
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  sessions     Session[]
+  pocConfigs   PocConfig[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique // sha256 hex of the raw cookie token
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
 model PocConfig {
   id           String   @id @default(uuid())
   name         String
@@ -18,6 +38,8 @@ model PocConfig {
   updatedAt    DateTime @updatedAt
 
   currentConfigVersionId String?
+  ownerId                String?
+  owner                  User?   @relation(fields: [ownerId], references: [id])
 
   evalCases          EvalCase[]
   llmConnections     LlmConnection[]
@@ -86,6 +108,7 @@ model LlmConnection {
   isDefault       Boolean   @default(false)
   endpointUrl     String
   apiKey          String?
+  apiKeyHint      String?
   model           String
   isActive        Boolean   @default(false)
   lastCheckedAt   DateTime?
