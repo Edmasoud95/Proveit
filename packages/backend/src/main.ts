@@ -34,7 +34,11 @@ async function bootstrap() {
 
   app.use(rawJsonParser);
   app.setGlobalPrefix('api');
-  app.enableCors({ origin: /^http:\/\/localhost:\d+$/ });
+  const allowedOrigin = process.env.ALLOWED_ORIGIN;
+  app.enableCors({
+    origin: allowedOrigin ? [allowedOrigin] : /^http:\/\/localhost:\d+$/,
+    credentials: true,
+  });
   app.useGlobalPipes(new ValidationPipe({ transform: true }));
 
   const port = process.env.PORT ?? 3000;

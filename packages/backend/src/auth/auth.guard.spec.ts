@@ -21,7 +21,9 @@ function ctxWith(cookie: string | undefined, meta: { isPublic?: boolean; adminOn
 
 describe('AuthGuard', () => {
   const auth = { validateSession: vi.fn() };
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it('allows @Public routes without a session', async () => {
     const { ctx, reflector } = ctxWith(undefined, { isPublic: true });
