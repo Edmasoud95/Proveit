@@ -1,18 +1,36 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { EvalCase } from '@proveit/shared';
 import { Card } from '../ui/Card';
+import { Input } from '../ui/Input';
+import { Button } from '../ui/Button';
 import { api } from '../../services/api';
 
 interface EvalCasesListProps {
   pocId: string;
   cases: EvalCase[];
+  addingNew?: boolean;
+  onAddComplete?: () => void;
 }
 
-export function EvalCasesList({ pocId, cases }: EvalCasesListProps) {
+export function EvalCasesList({ pocId, cases, addingNew, onAddComplete }: EvalCasesListProps) {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const [draftName, setDraftName] = useState('');
+  const [draftMessage, setDraftMessage] = useState('');
+  const [draftCriteria, setDraftCriteria] = useState('');
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (addingNew) {
+      setDraftName('');
+      setDraftMessage('');
+      setDraftCriteria('');
+      setTimeout(() => nameRef.current?.focus(), 0);
+    }
+  }, [addingNew]);
 
   const deleteMutation = useMutation({
     mutationFn: (caseId: string) => api.delete(`/pocs/${pocId}/evals/cases/${caseId}`),
@@ -22,12 +40,25 @@ export function EvalCasesList({ pocId, cases }: EvalCasesListProps) {
     },
   });
 
-  if (cases.length === 0) {
-    return <p className="text-sm text-muted text-center py-6">No eval cases yet.</p>;
-  }
+  const addMutation = useMutation({
+    mutationFn: () =>
+      api.post(`/pocs/${pocId}/evals`, {
+        cases: [{ name: draftName, input: { messages: [{ role: 'user', content: draftMessage }] }, judgeCriteria: draftCriteria }],
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['poc', pocId] });
+      onAddComplete?.();
+    },
+  });
+
+  const draftValid = draftName.trim() && draftMessage.trim() && draftCriteria.trim();
 
   return (
     <div className="flex flex-col gap-2">
+      {cases.length === 0 && !addingNew && (
+        <p className="text-sm text-muted text-center py-6">No eval cases yet.</p>
+      )}
+
       {cases.map((c) => (
         <Card key={c.id} className="hover:border-border/80 transition-colors">
           <div className="flex items-center justify-between">
@@ -88,6 +119,49 @@ export function EvalCasesList({ pocId, cases }: EvalCasesListProps) {
           )}
         </Card>
       ))}
+
+      {addingNew && (
+        <Card className="flex flex-col gap-3">
+          <Input
+            ref={nameRef}
+            label="Name"
+            value={draftName}
+            onChange={e => setDraftName(e.target.value)}
+            placeholder="e.g. Handles missing order ID"
+          />
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm text-gray-300 font-medium">User message</label>
+            <textarea
+              value={draftMessage}
+              onChange={e => setDraftMessage(e.target.value)}
+              placeholder="What the user says to the agent"
+              rows={2}
+              className="w-full px-3 py-2 rounded-lg bg-surface-overlay border border-border text-gray-100 text-sm
+                focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent resize-none"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm text-gray-300 font-medium">Judge criteria</label>
+            <textarea
+              value={draftCriteria}
+              onChange={e => setDraftCriteria(e.target.value)}
+              placeholder="Specific, measurable pass/fail criteria for the LLM judge"
+              rows={2}
+              className="w-full px-3 py-2 rounded-lg bg-surface-overlay border border-border text-gray-100 text-sm
+                focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent resize-none"
+            />
+          </div>
+          {addMutation.isError && (
+            <p className="text-xs text-red-400">Failed to save. Please try again.</p>
+          )}
+          <div className="flex items-center gap-3">
+            <Button variant="secondary" size="sm" onClick={() => onAddComplete?.()}>Cancel</Button>
+            <Button size="sm" onClick={() => addMutation.mutate()} loading={addMutation.isPending} disabled={!draftValid}>
+              Save case
+            </Button>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

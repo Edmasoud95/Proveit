@@ -21,6 +21,7 @@ export function PocEditor() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>('prompt');
+  const [showAddEval, setShowAddEval] = useState(false);
 
   const { data: poc, isLoading } = useQuery({
     queryKey: ['poc', id],
@@ -133,7 +134,7 @@ export function PocEditor() {
         )}
         {tab === 'evals' && (
           <div className="flex flex-col gap-4">
-            <div className="flex gap-3">
+            <div className="flex gap-3 flex-wrap">
               <EvalImport onImport={async (cases) => { await importCasesMutation.mutateAsync(cases as never[]); }} />
               <GenerateEvalsButton
                 onGenerate={async (count) => { await generateCasesMutation.mutateAsync(count); }}
@@ -146,8 +147,20 @@ export function PocEditor() {
               >
                 <Sparkle /> Generate test data
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowAddEval(true)}
+              >
+                + Add manually
+              </Button>
             </div>
-            <EvalCasesList pocId={poc.id} cases={poc.evalCases} />
+            <EvalCasesList
+              pocId={poc.id}
+              cases={poc.evalCases}
+              addingNew={showAddEval}
+              onAddComplete={() => setShowAddEval(false)}
+            />
           </div>
         )}
 
