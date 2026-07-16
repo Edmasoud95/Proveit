@@ -4,6 +4,7 @@ import type { LlmRoutingConfig, TaskType } from '@proveit/shared';
 import { api } from '../../services/api';
 import { Card } from '../ui/Card';
 import { useToast } from '../ui/Toast';
+import { resolveEffectiveProvider } from '../../hooks/useRouting';
 
 const TASK_TYPES: { type: TaskType; label: string }[] = [
   { type: 'agent', label: 'Agent (eval runs)' },
@@ -57,6 +58,7 @@ export function ModelRoutingPanel({ pocId, routing }: ModelRoutingPanelProps) {
             const selectedProvider = override
               ? allProviders.find((p) => p.id === override.connectionId)
               : null;
+            const effective = resolveEffectiveProvider(routing, type);
             const isOverrideInactive = selectedProvider && !selectedProvider.isActive && !!selectedProvider.lastCheckedAt;
 
             return (
@@ -114,6 +116,13 @@ export function ModelRoutingPanel({ pocId, routing }: ModelRoutingPanelProps) {
                       ×
                     </button>
                   </>
+                )}
+                {!override && (
+                  <span className="text-xs text-muted font-mono flex-1">
+                    {effective
+                      ? `${effective.provider.name} · ${effective.model}${effective.source === 'global-default' ? ' (global default)' : ''}`
+                      : '—'}
+                  </span>
                 )}
                 {isOverrideInactive && (
                   <span title="Provider unreachable" className="text-amber-400 text-sm">⚠</span>

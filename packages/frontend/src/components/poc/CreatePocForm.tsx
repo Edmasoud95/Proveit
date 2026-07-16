@@ -20,7 +20,8 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [models, setModels] = useState<string[]>([]);
-  const [selectedGlobalId, setSelectedGlobalId] = useState<string>('manual');
+  // null = user hasn't chosen yet → preselect the global default provider when one exists.
+  const [selectedGlobalId, setSelectedGlobalId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const { data: globalProviders = [] } = useQuery({
@@ -28,13 +29,17 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
     queryFn: () => api.get<LlmProvider[]>('/llm/global-providers'),
   });
 
-  const usingGlobal = selectedGlobalId !== 'manual' && globalProviders.some((p) => p.id === selectedGlobalId);
+  const globalDefault = globalProviders.find((p) => p.isDefault) ?? globalProviders[0];
+  const effectiveGlobalId = selectedGlobalId ?? (globalDefault ? globalDefault.id : 'manual');
+  const usingGlobal =
+    effectiveGlobalId !== 'manual' && globalProviders.some((p) => p.id === effectiveGlobalId);
+  const selectedGlobal = globalProviders.find((p) => p.id === effectiveGlobalId);
 
   async function handleLoadModels() {
     setLoadingModels(true);
     try {
       const { models: fetched } = await api.post<{ models: string[] }>('/llm/models', usingGlobal
-        ? { globalProviderId: selectedGlobalId }
+        ? { globalProviderId: effectiveGlobalId }
         : { endpointUrl, apiKey: apiKey || undefined },
       );
       setModels(fetched);
@@ -55,7 +60,7 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
       endpointUrl: usingGlobal ? undefined : endpointUrl,
       apiKey: usingGlobal ? undefined : (apiKey || undefined),
       model: model || undefined,
-      globalProviderId: usingGlobal ? selectedGlobalId : undefined,
+      globalProviderId: usingGlobal ? effectiveGlobalId : undefined,
     });
     setDescription('');
   }
@@ -79,13 +84,48 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
       </div>
 
       <div className="flex flex-col gap-3">
-        <Input
-          label="LLM endpoint URL"
-          value={endpointUrl}
-          onChange={(e) => setEndpointUrl(e.target.value)}
-          placeholder="http://localhost:1234/v1"
-          disabled={loading}
-        />
+        {globalProviders.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm text-gray-300 font-medium">LLM provider</label>
+            <select
+              value={effectiveGlobalId}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedGlobalId(val);
+                if (val === 'manual') return;
+                const p = globalProviders.find((gp) => gp.id === val);
+                if (p) {
+                  setModel('');
+                  setApiKey('');
+                  setModels([]);
+                }
+              }}
+              disabled={loading}
+              className="w-full bg-surface-overlay border border-border rounded-lg px-3 py-2.5 text-sm text-gray-300
+                focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-40"
+            >
+              {globalProviders.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} — {p.model}
+                  {p.isDefault ? ' (global default)' : ''}
+                </option>
+              ))}
+              <option value="manual">Custom endpoint…</option>
+            </select>
+            {usingGlobal && selectedGlobal && (
+              <p className="text-xs text-muted">{selectedGlobal.endpointUrl}</p>
+            )}
+          </div>
+        )}
+        {!usingGlobal && (
+          <Input
+            label="LLM endpoint URL"
+            value={endpointUrl}
+            onChange={(e) => setEndpointUrl(e.target.value)}
+            placeholder="http://localhost:1234/v1"
+            disabled={loading}
+          />
+        )}
         <button
           type="button"
           onClick={() => setShowAdvanced(!showAdvanced)}
@@ -95,36 +135,6 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
         </button>
         {showAdvanced && (
           <div className="flex flex-col gap-3 pl-3 border-l border-border">
-            {globalProviders.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted shrink-0">LLM source:</span>
-                <select
-                  value={selectedGlobalId}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setSelectedGlobalId(val);
-                    if (val === 'manual') return;
-                    const p = globalProviders.find((gp) => gp.id === val);
-                    if (p) {
-                      setEndpointUrl(p.endpointUrl);
-                      setModel(p.model);
-                      setApiKey('');
-                      setModels([]);
-                    }
-                  }}
-                  disabled={loading}
-                  className="flex-1 bg-surface-overlay border border-border rounded-lg px-2 py-1.5 text-xs text-gray-300
-                    focus:outline-none focus:border-accent/60 disabled:opacity-40"
-                >
-                  <option value="manual">Manual</option>
-                  {globalProviders.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} — {p.model}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
             {!usingGlobal && (
               <Input
                 label="API key (optional)"
@@ -141,13 +151,13 @@ export function CreatePocForm({ onSubmit, loading }: CreatePocFormProps) {
                 <Input
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  placeholder="gpt-4o, llama-3-8b, …"
+                  placeholder={usingGlobal && selectedGlobal ? `${selectedGlobal.model} (provider default)` : 'gpt-4o, llama-3-8b, …'}
                   disabled={loading}
                 />
                 <button
                   type="button"
                   onClick={handleLoadModels}
-                  disabled={loadingModels || !endpointUrl || loading}
+                  disabled={loadingModels || (!usingGlobal && !endpointUrl) || loading}
                   className="shrink-0 px-3 py-2 rounded-lg border border-border bg-surface-overlay text-sm text-gray-300 hover:border-accent/50 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
                 >
                   {loadingModels
