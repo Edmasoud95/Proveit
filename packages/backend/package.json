@@ -6,7 +6,7 @@
     "build": "nest build",
     "start": "node dist/main",
     "lint": "eslint src --ext .ts",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "test:watch": "vitest",
     "db:setup": "prisma generate && prisma migrate dev --name init",
     "db:migrate": "prisma migrate dev",
