@@ -10,7 +10,7 @@ import { EvalImport } from '../components/eval/EvalImport';
 import { GenerateEvalsButton } from '../components/eval/GenerateEvalsButton';
 import { Button } from '../components/ui/Button';
 import { Sparkle } from '../components/ui/Sparkle';
-import { ExportButton, PromptfooExportButton } from '../components/poc/ExportButton';
+import { ExportMenu } from '../components/poc/ExportButton';
 import { GenerateStubsButton } from '../components/poc/GenerateStubsButton';
 import { ConfigVersionHistory } from '../components/poc/ConfigVersionHistory';
 import { Spinner } from '../components/ui/Spinner';
@@ -73,8 +73,7 @@ export function PocEditor() {
           <p className="text-sm text-muted mt-0.5 line-clamp-1">{poc.description}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <PromptfooExportButton pocId={poc.id} />
-          <ExportButton pocId={poc.id} />
+          <ExportMenu pocId={poc.id} />
           <Link
             to={`/poc/${poc.id}/llm`}
             className="px-3 py-1.5 text-sm rounded-lg bg-surface-overlay border border-border text-gray-200

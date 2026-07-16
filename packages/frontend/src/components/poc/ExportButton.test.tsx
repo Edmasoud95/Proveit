@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ExportButton, PromptfooExportButton } from './ExportButton';
+import { ExportMenu } from './ExportButton';
 
-function mockDownload(contentType: string) {
-  const fetchMock = vi.fn().mockResolvedValue({
-    blob: async () => new Blob(['x'], { type: contentType }),
+let fetchMock: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  fetchMock = vi.fn().mockResolvedValue({
+    blob: async () => new Blob(['x'], { type: 'text/plain' }),
     headers: { get: () => null },
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -13,10 +15,6 @@ function mockDownload(contentType: string) {
     createObjectURL: vi.fn(() => 'blob:x'),
     revokeObjectURL: vi.fn(),
   });
-  return fetchMock;
-}
-
-beforeEach(() => {
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 });
 
@@ -25,20 +23,43 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('export buttons', () => {
-  it('ExportButton downloads the JSON export', async () => {
-    const fetchMock = mockDownload('application/json');
-    render(<ExportButton pocId="poc-1" />);
-    fireEvent.click(screen.getByRole('button', { name: /export json/i }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/pocs/poc-1/export'));
+function openMenu() {
+  render(<ExportMenu pocId="poc-1" />);
+  fireEvent.click(screen.getByRole('button', { name: /export/i }));
+}
+
+describe('ExportMenu', () => {
+  it('opens on click and lists the three export formats', () => {
+    openMenu();
+    expect(screen.getByRole('menuitem', { name: /plan for coding agent/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /promptfoo config/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /raw json/i })).toBeInTheDocument();
   });
 
-  it('PromptfooExportButton downloads the promptfoo config', async () => {
-    const fetchMock = mockDownload('text/yaml');
-    render(<PromptfooExportButton pocId="poc-1" />);
-    fireEvent.click(screen.getByRole('button', { name: /promptfoo/i }));
+  it('downloads plan.md and closes the menu', async () => {
+    openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: /plan for coding agent/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/pocs/poc-1/export/plan'));
+    expect(screen.queryByRole('menuitem', { name: /raw json/i })).not.toBeInTheDocument();
+  });
+
+  it('downloads the promptfoo config', async () => {
+    openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: /promptfoo config/i }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith('/api/pocs/poc-1/evals/export/promptfoo'),
     );
+  });
+
+  it('downloads the raw JSON export', async () => {
+    openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: /raw json/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/pocs/poc-1/export'));
+  });
+
+  it('closes on Escape', () => {
+    openMenu();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menuitem', { name: /raw json/i })).not.toBeInTheDocument();
   });
 });
