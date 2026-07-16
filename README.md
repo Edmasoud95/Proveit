@@ -140,6 +140,20 @@ pnpm lint
 
 ---
 
+## Graduating to CI
+
+Proveit is for the phase *before* the code exists: validating that an agent idea works at all. Once a POC becomes a real product, you'll want CI-grade regression testing — that's [Promptfoo](https://www.promptfoo.dev/)'s territory, and Proveit hands off to it directly.
+
+Click **Export for Promptfoo** in the POC editor (or `GET /api/pocs/:id/evals/export/promptfoo`) to download a runnable `promptfooconfig.yaml`: your system prompt becomes the prompt template, each eval case becomes a test, judge criteria become `llm-rubric` assertions, and your configured endpoints are carried over. Then:
+
+```bash
+npx promptfoo eval
+```
+
+API keys are never included in the export — set `OPENAI_API_KEY` in your environment if your endpoint needs one. Tool stubs aren't ported (promptfoo doesn't execute Proveit's mocks), so exported tests grade the final response.
+
+---
+
 ## Contributing & license
 
 Contributions welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and
