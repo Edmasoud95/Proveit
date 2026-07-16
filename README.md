@@ -140,17 +140,19 @@ pnpm lint
 
 ---
 
-## Graduating to CI
+## Graduating from Proveit
 
-Proveit is for the phase *before* the code exists: validating that an agent idea works at all. Once a POC becomes a real product, you'll want CI-grade regression testing — that's [Promptfoo](https://www.promptfoo.dev/)'s territory, and Proveit hands off to it directly.
+Proveit is for the phase *before* the code exists: validating that an agent idea works at all. When a POC graduates, the **Export ▾** menu in the POC editor hands off in two directions:
 
-Click **Export for Promptfoo** in the POC editor (or `GET /api/pocs/:id/evals/export/promptfoo`) to download a runnable `promptfooconfig.yaml`: your system prompt becomes the prompt template, each eval case becomes a test, judge criteria become `llm-rubric` assertions, and your configured endpoints are carried over. Then:
+**Build it** — *Plan for coding agent* downloads a `plan.md` implementation brief for Claude Code or any coding agent: the validated system prompt, each tool's contract with its validated response shape, and the eval cases as acceptance criteria — a pre-agreed definition of done.
+
+**Keep testing it** — *Promptfoo config* downloads a runnable `promptfooconfig.yaml` for CI-grade regression testing with [Promptfoo](https://www.promptfoo.dev/): each eval case becomes a test, judge criteria become `llm-rubric` assertions, and your configured endpoints are carried over. Then:
 
 ```bash
 npx promptfoo eval
 ```
 
-API keys are never included in the export — set `OPENAI_API_KEY` in your environment if your endpoint needs one. Tool stubs aren't ported (promptfoo doesn't execute Proveit's mocks), so exported tests grade the final response.
+API keys are never included in exports — set `OPENAI_API_KEY` in your environment if your endpoint needs one. Tool stubs aren't ported (promptfoo doesn't execute Proveit's mocks), so exported tests grade the final response.
 
 ---
 
