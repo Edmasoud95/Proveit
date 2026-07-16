@@ -15,6 +15,11 @@ Thumbs.db
 **/*.db
 **/*.db-journal
 
+# Internal dev artifacts (design docs, plans) — not part of the public tree
+docs/plans/
+docs/specs/
+docs/superpowers/
+
 # Compiled output must never land in shared/src (build outputs to dist/)
 packages/shared/src/**/*.js
 packages/shared/src/**/*.js.map
