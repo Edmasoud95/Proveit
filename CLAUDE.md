@@ -53,9 +53,13 @@ pnpm lint
 | `poc/` | POC config CRUD; scaffold endpoint calls ScaffoldService |
 | `scaffold/` | Calls LLM with scaffold prompt, persists PocConfig + EvalCases |
 | `llm/` | LLM connection CRUD, health check, model listing |
-| `eval/` | Eval case CRUD, AI generation, eval run execution, SSE streaming |
+| `eval/` | Split into focused services: `eval-case` (CRUD), `eval-run` (lifecycle + SSE), `eval-generation` (LLM case/stub gen), `eval-suite-version`, `eval-metrics`, `agent-runner` (tool-call loop) |
 | `eval/judge.service.ts` | LLM-as-judge scoring, returns `{ passed, score, reasoning }` |
+| `chat/` | Streaming chat with a POC's agent |
+| `common/` | `SseRegistry<T>` (keyed ReplaySubject registry for SSE), global `HttpExceptionFilter` |
 | `prisma/` | Global PrismaService (PrismaClient + OnModuleInit) |
+
+All request bodies are validated with decorated DTO classes (`dto/` per module); the global ValidationPipe runs with `whitelist` + `forbidNonWhitelisted`, so new body fields must be declared on a DTO. User-supplied endpoint URLs go through `llm/url-validation.ts`. Swagger is served at `/api/docs`.
 
 Key backend pattern: `POST /api/pocs/scaffold` is the main entry point — takes `{ description, endpointUrl, apiKey?, model? }`, calls ScaffoldService, returns full PocConfig with eval cases created.
 
@@ -70,7 +74,7 @@ Key backend pattern: `POST /api/pocs/scaffold` is the main entry point — takes
 | `LlmConnect` | `/poc/:id/llm` | Endpoint URL, API key, model selector, connection test |
 | `EvalResults` | `/poc/:id/evals` | Run evals, live SSE stream, past run history |
 
-**Frontend state**: React Query for all server state. No global UI state store. SSE consumed via native `EventSource` API in `EvalResults`.
+**Frontend state**: React Query for all server state. No global UI state store. SSE consumed via native `EventSource` in `src/hooks/useEvalRunStream.ts`; shared query/mutation logic lives in `src/hooks/` (e.g. `useProviders`), page-specific sections in `src/components/{eval,llm,poc,chat}/`.
 
 **POC config data model**: Central entity. `tools` and `metadata` stored as JSON strings in SQLite, parsed in `PocService.findOne()`. `EvalCase.input` also stored as JSON string.
 
