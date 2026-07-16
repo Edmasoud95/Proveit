@@ -1,14 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { ToolDefinition } from '@proveit/shared';
+import type { GenerateStubsResult, ToolDefinition } from '@proveit/shared';
 import { api } from '../../services/api';
 import { Sparkle } from '../ui/Sparkle';
 import { useToast } from '../ui/Toast';
-
-interface GenerateStubsResult {
-  generated: string[];
-  skipped: string[];
-  failed: string[];
-}
 
 interface ToolStubButtonProps {
   pocId: string;

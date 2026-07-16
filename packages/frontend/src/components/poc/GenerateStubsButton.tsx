@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { ToolDefinition } from '@proveit/shared';
+import type { GenerateStubsResult, ToolDefinition } from '@proveit/shared';
 import { api } from '../../services/api';
 import { Button } from '../ui/Button';
 import { Sparkle } from '../ui/Sparkle';
@@ -9,12 +9,6 @@ import { useToast } from '../ui/Toast';
 interface GenerateStubsButtonProps {
   pocId: string;
   tools: ToolDefinition[];
-}
-
-interface GenerateStubsResult {
-  generated: string[];
-  skipped: string[];
-  failed: string[];
 }
 
 function isEmpty(r?: string): boolean {

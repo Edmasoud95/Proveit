@@ -1,9 +1,4 @@
-interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  mockResponse?: string;
-}
+import type { ToolDefinition } from '@proveit/shared';
 
 export function buildGenerateToolDataSystemPrompt(): string {
   return `You are an expert at writing eval cases for tool-calling AI agents. Given an agent's system prompt and available tools, generate diverse test cases where the user message will realistically cause the agent to call at least one of its tools.

@@ -287,6 +287,19 @@ export interface EvalRunCompleteEvent {
   total: number;
 }
 
+/** Envelope for eval-run SSE messages (event name + JSON payload). */
+export interface EvalSseEvent {
+  type: 'case-start' | 'case-complete' | 'run-complete' | 'error' | 'step-update';
+  data: Record<string, unknown>;
+}
+
+/** Result of POST /pocs/:pocId/tools/stubs/generate. */
+export interface GenerateStubsResult {
+  generated: string[];
+  skipped: string[];
+  failed: string[];
+}
+
 export interface EvalErrorEvent {
   caseId: string;
   error: string;

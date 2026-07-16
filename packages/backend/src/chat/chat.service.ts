@@ -3,14 +3,7 @@ import { Observable, Subject } from 'rxjs';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
-import type { ChatMessageInput, ChatStreamEvent } from '@proveit/shared';
-
-interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  mockResponse?: string;
-}
+import type { ChatMessageInput, ChatStreamEvent, ToolDefinition } from '@proveit/shared';
 
 @Injectable()
 export class ChatService {

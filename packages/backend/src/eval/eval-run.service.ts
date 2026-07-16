@@ -7,12 +7,7 @@ import { JudgeService } from './judge.service';
 import { AgentRunnerService } from './agent-runner.service';
 import { EvalMetricsService } from './eval-metrics.service';
 import { SseRegistry } from '../common/sse-registry';
-import type { ToolDefinition } from '@proveit/shared';
-
-export interface EvalSseEvent {
-  type: 'case-start' | 'case-complete' | 'run-complete' | 'error' | 'step-update';
-  data: Record<string, unknown>;
-}
+import type { EvalSseEvent, ToolDefinition } from '@proveit/shared';
 
 /** Orchestrates eval runs: lifecycle, execution loop, SSE streaming, history. */
 @Injectable()

@@ -1,9 +1,4 @@
-interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  mockResponse?: string;
-}
+import type { ToolDefinition } from '@proveit/shared';
 
 export function buildGenerateStubsSystemPrompt(): string {
   return `You are a test data generator. Given a list of tool definitions, produce realistic mock responses for each tool.
