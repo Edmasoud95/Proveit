@@ -1,12 +1,10 @@
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import type { LlmRoutingConfig } from '@proveit/shared';
-import { api } from '../services/api';
 import { Card } from '../components/ui/Card';
 import { StatusDot } from '../components/llm/ProviderCard';
 import { ProviderList } from '../components/llm/ProviderList';
 import { ModelRoutingPanel } from '../components/llm/ModelRoutingPanel';
 import { useProviders } from '../hooks/useProviders';
+import { useRouting } from '../hooks/useRouting';
 
 export function LlmConnect() {
   const { id } = useParams<{ id: string }>();
@@ -19,11 +17,7 @@ export function LlmConnect() {
     enabled: !!id,
   });
 
-  const { data: routing } = useQuery({
-    queryKey: ['routing', id],
-    queryFn: () => api.get<LlmRoutingConfig>(`/pocs/${id}/llm/routing`),
-    enabled: !!id,
-  });
+  const { data: routing } = useRouting(id);
 
   const { providers, showAddForm } = manager;
   const activeCount = providers.filter((p) => p.isActive).length;

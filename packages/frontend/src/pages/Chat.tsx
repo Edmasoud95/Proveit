@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
@@ -9,10 +8,9 @@ import {
   type ThreadAssistantMessagePart,
 } from '@assistant-ui/react';
 import type { ChatMessageInput, ChatStreamEvent } from '@proveit/shared';
-import { api } from '../services/api';
 import { RunConfig } from '../components/eval/RunConfig';
 import { Thread } from '../components/chat/Thread';
-import type { LlmProvider } from '@proveit/shared';
+import { resolveEffectiveProvider, useRouting } from '../hooks/useRouting';
 
 function buildApiMessages(options: ChatModelRunOptions): ChatMessageInput[] {
   return options.messages
@@ -143,13 +141,10 @@ export function Chat() {
   const { id } = useParams<{ id: string }>();
   const [convId, setConvId] = useState(() => crypto.randomUUID());
 
-  const { data: providers = [] } = useQuery({
-    queryKey: ['providers', id],
-    queryFn: () => api.get<LlmProvider[]>(`/pocs/${id}/llm/providers`),
-    enabled: !!id,
-  });
-
-  const hasProvider = providers.length > 0;
+  // Mirror the backend's resolution chain (override → POC default → global
+  // default) so the warning only shows when chat would actually fail.
+  const { data: routing, isLoading: routingLoading } = useRouting(id);
+  const agentProvider = resolveEffectiveProvider(routing, 'agent');
 
   return (
     <div className="flex flex-col gap-4 h-[calc(100vh-10rem)]">
@@ -163,11 +158,14 @@ export function Chat() {
         </button>
       </div>
 
-      {!hasProvider && (
-        <div className="rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-gray-400 flex items-center gap-2 shrink-0">
-          <span>No LLM provider connected.</span>
+      {!routingLoading && !agentProvider && (
+        <div className="rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-gray-400 flex items-center gap-2 flex-wrap shrink-0">
+          <span>No LLM provider available — add one for this POC or set a global default.</span>
           <Link to={`/poc/${id}/llm`} className="text-blue-400 hover:text-blue-300 underline">
-            Configure LLM →
+            LLM Settings →
+          </Link>
+          <Link to="/settings" className="text-blue-400 hover:text-blue-300 underline">
+            Global Settings →
           </Link>
         </div>
       )}

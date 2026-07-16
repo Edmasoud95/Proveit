@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { LlmProvider, LlmRoutingConfig, TaskType } from '@proveit/shared';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { TaskType } from '@proveit/shared';
 import { api } from '../../services/api';
+import { resolveEffectiveProvider, useRouting } from '../../hooks/useRouting';
 
 const EVAL_TASK_TYPES: { type: TaskType; label: string }[] = [
   { type: 'agent', label: 'Agent' },
@@ -17,17 +18,9 @@ export function RunConfig({ pocId }: RunConfigProps) {
   const [expanded, setExpanded] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: providers = [] } = useQuery({
-    queryKey: ['providers', pocId],
-    queryFn: () => api.get<LlmProvider[]>(`/pocs/${pocId}/llm/providers`),
-    enabled: !!pocId,
-  });
-
-  const { data: routing } = useQuery({
-    queryKey: ['routing', pocId],
-    queryFn: () => api.get<LlmRoutingConfig>(`/pocs/${pocId}/llm/routing`),
-    enabled: !!pocId,
-  });
+  const { data: routing } = useRouting(pocId);
+  // POC providers and global providers alike — mirrors what the backend can route to.
+  const providers = routing?.providers ?? [];
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['routing', pocId] });
 
@@ -42,20 +35,6 @@ export function RunConfig({ pocId }: RunConfigProps) {
     onSuccess: invalidate,
   });
 
-  const defaultProvider = providers.find((p) => p.isDefault) ?? providers[0];
-
-  function getEffective(type: TaskType): { providerName: string; model: string } | null {
-    const override = routing?.overrides.find((o) => o.taskType === type);
-    if (override) {
-      const provider = providers.find((p) => p.id === override.connectionId);
-      return { providerName: provider?.name ?? 'Unknown', model: override.model };
-    }
-    if (defaultProvider) {
-      return { providerName: defaultProvider.name, model: defaultProvider.model };
-    }
-    return null;
-  }
-
   if (!providers.length) return null;
 
   return (
@@ -68,11 +47,12 @@ export function RunConfig({ pocId }: RunConfigProps) {
         <div className="flex items-center gap-4">
           {!expanded &&
             EVAL_TASK_TYPES.map(({ type, label }) => {
-              const eff = getEffective(type);
+              const eff = resolveEffectiveProvider(routing, type);
               return eff ? (
                 <span key={type} className="text-xs text-muted hidden sm:block">
                   <span className="text-gray-500">{label}</span>{' '}
                   <span className="text-gray-400 font-mono">{eff.model}</span>
+                  {eff.provider.isGlobal && <span className="text-gray-600"> · global</span>}
                 </span>
               ) : null;
             })}
@@ -85,6 +65,7 @@ export function RunConfig({ pocId }: RunConfigProps) {
           {EVAL_TASK_TYPES.map(({ type, label }) => {
             const override = routing?.overrides.find((o) => o.taskType === type);
             const selectedProvider = providers.find((p) => p.id === override?.connectionId);
+            const effective = resolveEffectiveProvider(routing, type);
 
             return (
               <div key={type} className="flex items-center gap-3">
@@ -109,7 +90,10 @@ export function RunConfig({ pocId }: RunConfigProps) {
                 >
                   <option value="">Default</option>
                   {providers.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                      {p.isGlobal ? ' (global)' : ''}
+                    </option>
                   ))}
                 </select>
                 {override ? (
@@ -147,7 +131,9 @@ export function RunConfig({ pocId }: RunConfigProps) {
                   </>
                 ) : (
                   <span className="text-xs text-muted font-mono flex-1">
-                    {defaultProvider ? `${defaultProvider.name} · ${defaultProvider.model}` : '—'}
+                    {effective
+                      ? `${effective.provider.name} · ${effective.model}${effective.source === 'global-default' ? ' (global default)' : ''}`
+                      : '—'}
                   </span>
                 )}
               </div>

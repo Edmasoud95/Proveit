@@ -43,7 +43,10 @@ export class ChatService {
       client = provider.client;
       model = provider.model;
     } catch {
-      this.emit(subject, { type: 'error', message: 'No LLM provider configured for this POC' });
+      this.emit(subject, {
+        type: 'error',
+        message: 'No LLM provider available — add one in LLM Settings or set a global default in Settings.',
+      });
       subject.complete();
       return;
     }
