@@ -20,15 +20,15 @@ export function GenerateEvalsButton({ onGenerate }: GenerateEvalsButtonProps) {
       <Button size="sm" onClick={handleGenerate} loading={loading}>
         <Sparkle /> Generate cases
       </Button>
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-muted">Count:</span>
+      <div className="flex items-center gap-1.5" title="How many cases to generate">
+        <span className="text-xs text-muted">×</span>
         <input
           type="number"
           min={1}
           max={20}
           value={count}
           onChange={(e) => setCount(Number(e.target.value))}
-          className="w-14 px-2 py-1 text-xs rounded-md bg-surface-overlay border border-border text-gray-100
+          className="w-12 px-2 py-1 text-xs rounded-md bg-surface-overlay border border-border text-gray-100
             focus:outline-none focus:ring-1 focus:ring-accent/50"
         />
       </div>
