@@ -122,9 +122,17 @@ export function PocEditor() {
         )}
         {tab === 'tools' && (
           <div className="flex flex-col gap-4">
-            <div className="flex">
-              <GenerateStubsButton pocId={poc.id} tools={poc.tools} />
-            </div>
+            {poc.tools.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <div className="flex">
+                  <GenerateStubsButton pocId={poc.id} tools={poc.tools} />
+                </div>
+                <p className="text-xs text-muted">
+                  Stubs are mock responses returned when the agent calls a tool in chat and eval runs — no real
+                  backend needed. A green dot means the tool has one.
+                </p>
+              </div>
+            )}
             <ToolsEditor
               pocId={poc.id}
               tools={poc.tools}
@@ -134,27 +142,39 @@ export function PocEditor() {
         )}
         {tab === 'evals' && (
           <div className="flex flex-col gap-4">
-            <div className="flex gap-3 flex-wrap">
-              <EvalImport onImport={async (cases) => { await importCasesMutation.mutateAsync(cases as never[]); }} />
-              <GenerateEvalsButton
-                onGenerate={async (count) => { await generateCasesMutation.mutateAsync(count); }}
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => generateToolDataMutation.mutate()}
-                loading={generateToolDataMutation.isPending}
-                title="Generate 5 eval cases that exercise this POC's tools"
-              >
-                <Sparkle /> Generate tool cases
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setShowAddEval(true)}
-              >
-                + Add case
-              </Button>
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-3 flex-wrap">
+                <GenerateEvalsButton
+                  onGenerate={async (count) => { await generateCasesMutation.mutateAsync(count); }}
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => generateToolDataMutation.mutate()}
+                  loading={generateToolDataMutation.isPending}
+                  disabled={poc.tools.length === 0}
+                  title={
+                    poc.tools.length === 0
+                      ? 'This POC has no tools — add some on the Tools tab first'
+                      : 'Generate 5 cases whose user messages force the agent to call its tools'
+                  }
+                >
+                  <Sparkle /> Generate tool cases
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowAddEval(true)}
+                >
+                  + Add case
+                </Button>
+                <EvalImport onImport={async (cases) => { await importCasesMutation.mutateAsync(cases as never[]); }} />
+              </div>
+              <p className="text-xs text-muted">
+                <span className="text-gray-400">Generate cases</span> tests general behavior from the system prompt
+                · <span className="text-gray-400">Generate tool cases</span> tests that the agent calls its tools
+                correctly — judged by tool name.
+              </p>
             </div>
             <EvalCasesList
               pocId={poc.id}
