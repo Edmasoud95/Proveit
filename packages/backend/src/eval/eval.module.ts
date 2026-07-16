@@ -8,6 +8,7 @@ import { EvalSuiteVersionService } from './eval-suite-version.service';
 import { EvalMetricsService } from './eval-metrics.service';
 import { AgentRunnerService } from './agent-runner.service';
 import { JudgeService } from './judge.service';
+import { PromptfooExportService } from './promptfoo-export.service';
 import { LlmModule } from '../llm/llm.module';
 
 @Module({
@@ -21,6 +22,7 @@ import { LlmModule } from '../llm/llm.module';
     EvalMetricsService,
     AgentRunnerService,
     JudgeService,
+    PromptfooExportService,
   ],
 })
 export class EvalModule {}

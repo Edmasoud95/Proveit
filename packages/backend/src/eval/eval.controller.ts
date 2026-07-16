@@ -11,7 +11,9 @@ import {
   MessageEvent,
   HttpCode,
   HttpStatus,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { Observable, defer } from 'rxjs';
 import { map, switchMap } from 'rxjs/operators';
 import { EvalCaseService } from './eval-case.service';
@@ -19,6 +21,7 @@ import { EvalRunService } from './eval-run.service';
 import { EvalGenerationService } from './eval-generation.service';
 import { EvalSuiteVersionService } from './eval-suite-version.service';
 import { EvalMetricsService } from './eval-metrics.service';
+import { PromptfooExportService } from './promptfoo-export.service';
 import { AddCasesDto } from './dto/add-cases.dto';
 import { UpdateCaseDto } from './dto/update-case.dto';
 import { GenerateCasesDto } from './dto/generate-cases.dto';
@@ -31,6 +34,7 @@ export class EvalController {
     private readonly generation: EvalGenerationService,
     private readonly suiteVersions: EvalSuiteVersionService,
     private readonly metrics: EvalMetricsService,
+    private readonly promptfooExport: PromptfooExportService,
   ) {}
 
   @Post()
@@ -107,5 +111,13 @@ export class EvalController {
     @Query('runB') runBId: string,
   ) {
     return this.metrics.compareRuns(pocId, runAId, runBId);
+  }
+
+  @Get('export/promptfoo')
+  async exportPromptfoo(@Param('pocId') pocId: string, @Res() res: Response) {
+    const yamlText = await this.promptfooExport.exportConfig(pocId);
+    res.setHeader('Content-Type', 'text/yaml; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="promptfooconfig.yaml"');
+    res.send(yamlText);
   }
 }
