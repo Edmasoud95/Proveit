@@ -27,9 +27,9 @@ ProveIt lets developers go from idea to a running eval suite in minutes, without
 
 ### Prerequisites
 
-- Node.js 20+
-- pnpm 9+
-- A running LLM endpoint (defaults to [LM Studio](https://lmstudio.ai) at `http://localhost:1234/v1`)
+- Node.js 20+ (see `.nvmrc`)
+- pnpm 11 (`corepack enable` picks up the pinned version)
+- A running LLM endpoint (defaults to [LM Studio](https://lmstudio.ai) at `http://localhost:1234/v1`; any OpenAI-compatible API works)
 
 ### Install and run
 
@@ -44,7 +44,12 @@ pnpm --filter backend db:setup
 pnpm dev
 ```
 
-Open `http://localhost:5173`.
+Open `http://localhost:5173`. Interactive API docs are served at `http://localhost:3000/api/docs`.
+
+> **Security note:** Proveit is a local, single-user tool — there is no
+> authentication and LLM API keys are stored in plaintext in the local SQLite
+> database. Do not expose it beyond your machine. See [SECURITY.md](./SECURITY.md)
+> for the full threat model.
 
 ### First POC in 5 minutes
 
@@ -63,7 +68,7 @@ Monorepo with three packages:
 | Package | Stack | Port |
 |---------|-------|------|
 | `packages/backend` | NestJS 10, Prisma 5 (SQLite), OpenAI SDK, RxJS | 3000 |
-| `packages/frontend` | React 18, React Router 6, TanStack Query 5, Tailwind CSS 3, Vite 5 | 5173 |
+| `packages/frontend` | React 18, React Router 6, TanStack Query 5, Tailwind CSS 3, Vite 6 | 5173 |
 | `packages/shared` | TypeScript interfaces only | — |
 
 The frontend proxies all `/api` requests to the backend. The frontend never calls LLMs directly.
@@ -75,8 +80,8 @@ The frontend proxies all `/api` requests to the backend. The frontend never call
 | `poc/` | POC config CRUD; scaffold endpoint |
 | `scaffold/` | Calls LLM with scaffold prompt, persists POC config and eval cases |
 | `llm/` | LLM connection CRUD, health check, model listing |
-| `eval/` | Eval case CRUD, AI generation, run execution, SSE streaming |
-| `eval/judge.service.ts` | LLM-as-judge scoring |
+| `eval/` | Eval case CRUD, AI generation, run execution, SSE streaming, metrics, LLM-as-judge scoring |
+| `chat/` | Interactive chat with a POC's agent (streaming, session-only history) |
 | `prisma/` | Global PrismaService |
 
 ### Frontend pages
@@ -87,22 +92,8 @@ The frontend proxies all `/api` requests to the backend. The frontend never call
 | `PocEditor` | `/poc/:id` | Tabbed editor: system prompt / tools / eval cases |
 | `LlmConnect` | `/poc/:id/llm` | Provider list, connection test, model selector, advanced routing |
 | `EvalResults` | `/poc/:id/evals` | Run evals, live stream, run history grouped by version, trace viewer |
-
----
-
-## Features by release
-
-### 001 — Project scaffolding
-Foundation: POC config CRUD, LLM-powered scaffolding, LLM connection management, LLM-as-judge eval runs with real-time SSE streaming, JSON export/import.
-
-### 002 — Tool stubs
-Tool mock responses: manually author or LLM-generate stub responses per tool. Eval runner intercepts tool calls and returns stubs. LLM-generated test data produces eval inputs designed to trigger tool calls.
-
-### 003 — Versioned eval runs with pipeline traces
-Eval suites auto-version on any change (add/edit/delete a case). Runs are tagged to their suite version. Eval results page groups runs by version. Side-by-side run comparison within a version. Full pipeline trace per case: input → system prompt → tool calls → final response → judge verdict.
-
-### 004 — Multi-provider LLM routing
-Multiple named provider connections per POC. One designated as default. Advanced routing panel (collapsed by default) lets power users assign specific providers and models to individual task types: agent, judge, eval generation, stub generation. Fully backward-compatible — existing single-provider POCs require no reconfiguration.
+| `Chat` | `/poc/:id/chat` | Chat with the POC's agent using its system prompt and tool stubs |
+| `GlobalSettings` | `/settings` | Global (cross-POC) LLM providers |
 
 ---
 
@@ -145,4 +136,11 @@ pnpm lint
 - **Frontend never calls LLMs** — all LLM communication goes through the backend
 - **Progressive disclosure** — simple defaults with advanced options behind toggles
 - **Minimal dependencies** — no component libraries; hand-crafted Tailwind components
-- **No auth** — single-user, local tool; no login required
+- **No auth** — single-user, local tool; no login required (see [SECURITY.md](./SECURITY.md))
+
+---
+
+## Contributing & license
+
+Contributions welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and
+conventions. Released under the [MIT License](./LICENSE).
