@@ -2,6 +2,10 @@
   "name": "proveit",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.5.3",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "concurrently --kill-others-on-fail -n backend,frontend -c blue,green \"pnpm --filter backend dev\" \"wait-on http://localhost:3000/api/pocs && pnpm --filter frontend dev --host\"",
     "build": "pnpm --filter shared build && pnpm --filter backend build && pnpm --filter frontend build",
@@ -9,7 +13,7 @@
     "lint": "pnpm -r lint"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0",
+    "concurrently": "^9.2.4",
     "wait-on": "^9.0.10"
   }
 }

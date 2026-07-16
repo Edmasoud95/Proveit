@@ -1,5 +1,21 @@
 packages:
   - 'packages/*'
+# Scoped overrides for vulnerable transitive dependencies (see SECURITY.md).
+# Each key is scoped to the vulnerable range so unrelated majors are untouched.
+overrides:
+  'multer@<2.1.0': '>=2.1.0'
+  'lodash@>=4.0.0 <=4.17.23': '>=4.17.24'
+  'js-yaml@>=4.0.0 <4.1.1': '>=4.1.1'
+  'glob@>=10.2.0 <10.5.0': '>=10.5.0'
+  'webpack@>=5.49.0 <=5.104.0': '>=5.104.1'
+  'ajv@>=7.0.0-alpha.0 <8.18.0': '>=8.18.0'
+  'picomatch@>=4.0.0 <4.0.4': '>=4.0.4'
+  'tmp@<=0.2.3': '>=0.2.4'
+  'shell-quote@>=1.1.0 <=1.8.3': '>=1.8.4'
+  'form-data@>=4.0.0 <4.0.6': '>=4.0.6'
+  'qs@>=6.11.1 <=6.15.1': '>=6.15.2'
+  'vite@>=6.0.0 <=6.4.2': '^6.4.3'
+  'esbuild@>=0.22.0 <=0.24.2': '>=0.24.3'
 allowBuilds:
   '@nestjs/core': true
   '@prisma/client': true
