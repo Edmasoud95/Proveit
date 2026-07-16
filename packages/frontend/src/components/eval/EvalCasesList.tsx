@@ -56,7 +56,9 @@ export function EvalCasesList({ pocId, cases, addingNew, onAddComplete }: EvalCa
   return (
     <div className="flex flex-col gap-2">
       {cases.length === 0 && !addingNew && (
-        <p className="text-sm text-muted text-center py-6">No eval cases yet.</p>
+        <p className="text-sm text-muted text-center py-6">
+          No eval cases yet — generate some above, or add one manually.
+        </p>
       )}
 
       {cases.map((c) => (
@@ -89,10 +91,10 @@ export function EvalCasesList({ pocId, cases, addingNew, onAddComplete }: EvalCa
               ) : (
                 <button
                   onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(c.id); }}
-                  className="text-muted hover:text-red-400 transition-colors text-xs px-1"
+                  className="text-muted hover:text-red-400 transition-colors text-xs"
                   title="Delete eval case"
                 >
-                  ✕
+                  Remove
                 </button>
               )}
               <span
@@ -155,10 +157,10 @@ export function EvalCasesList({ pocId, cases, addingNew, onAddComplete }: EvalCa
             <p className="text-xs text-red-400">Failed to save. Please try again.</p>
           )}
           <div className="flex items-center gap-3">
-            <Button variant="secondary" size="sm" onClick={() => onAddComplete?.()}>Cancel</Button>
             <Button size="sm" onClick={() => addMutation.mutate()} loading={addMutation.isPending} disabled={!draftValid}>
               Save case
             </Button>
+            <Button variant="secondary" size="sm" onClick={() => onAddComplete?.()}>Cancel</Button>
           </div>
         </Card>
       )}

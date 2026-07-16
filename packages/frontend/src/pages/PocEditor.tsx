@@ -122,7 +122,7 @@ export function PocEditor() {
         )}
         {tab === 'tools' && (
           <div className="flex flex-col gap-4">
-            <div className="flex justify-end">
+            <div className="flex">
               <GenerateStubsButton pocId={poc.id} tools={poc.tools} />
             </div>
             <ToolsEditor
@@ -144,15 +144,16 @@ export function PocEditor() {
                 size="sm"
                 onClick={() => generateToolDataMutation.mutate()}
                 loading={generateToolDataMutation.isPending}
+                title="Generate 5 eval cases that exercise this POC's tools"
               >
-                <Sparkle /> Generate test data
+                <Sparkle /> Generate tool cases
               </Button>
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={() => setShowAddEval(true)}
               >
-                + Add manually
+                + Add case
               </Button>
             </div>
             <EvalCasesList

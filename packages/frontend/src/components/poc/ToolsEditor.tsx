@@ -21,8 +21,10 @@ interface ToolsEditorProps {
 export function ToolsEditor({ pocId, tools, onSave }: ToolsEditorProps) {
   const [draft, setDraft] = useState(tools);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [confirmDeleteIdx, setConfirmDeleteIdx] = useState<number | null>(null);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(tools);
 
   useEffect(() => {
     setDraft((prev) =>
@@ -36,7 +38,13 @@ export function ToolsEditor({ pocId, tools, onSave }: ToolsEditorProps) {
 
   async function handleSave() {
     setSaving(true);
-    try { await onSave(draft); } finally { setSaving(false); }
+    try {
+      await onSave(draft);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function updateTool(idx: number, field: keyof ToolDefinition, value: string) {
@@ -177,8 +185,18 @@ export function ToolsEditor({ pocId, tools, onSave }: ToolsEditorProps) {
         </Card>
       ))}
       <div className="flex items-center gap-3">
+        <Button size="sm" onClick={handleSave} loading={saving} disabled={hasJsonError || !dirty}>
+          {saved ? '✓ Saved' : 'Save tools'}
+        </Button>
         <Button variant="secondary" size="sm" onClick={addTool}>+ Add tool</Button>
-        <Button size="sm" onClick={handleSave} loading={saving} disabled={hasJsonError}>Save tools</Button>
+        {dirty && (
+          <button
+            onClick={() => setDraft(tools)}
+            className="text-xs text-muted hover:text-gray-300 transition-colors"
+          >
+            Discard changes
+          </button>
+        )}
       </div>
     </div>
   );

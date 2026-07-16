@@ -18,7 +18,7 @@ export function GenerateEvalsButton({ onGenerate }: GenerateEvalsButtonProps) {
   return (
     <div className="flex items-center gap-2">
       <Button size="sm" onClick={handleGenerate} loading={loading}>
-        <Sparkle /> Generate evals
+        <Sparkle /> Generate cases
       </Button>
       <div className="flex items-center gap-1.5">
         <span className="text-xs text-muted">Count:</span>

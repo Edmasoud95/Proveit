@@ -38,14 +38,14 @@ export function ToolStubButton({ pocId, tool }: ToolStubButtonProps) {
       disabled={mutation.isPending}
       className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-surface-overlay border border-border text-muted
         hover:text-gray-300 hover:border-accent/50 transition-colors disabled:opacity-50"
-      title="Generate stub for this tool"
+      title={tool.mockResponse ? 'Regenerate the mock response for this tool (overwrites it)' : 'Generate a mock response for this tool'}
     >
       {mutation.isPending ? (
         <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
       ) : (
         <Sparkle />
       )}
-      {mutation.isPending ? 'Generating…' : 'Generate stub'}
+      {mutation.isPending ? 'Generating…' : tool.mockResponse ? 'Regenerate stub' : 'Generate stub'}
     </button>
   );
 }
