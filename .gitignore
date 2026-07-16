@@ -12,5 +12,11 @@ Thumbs.db
 *.swp
 .idea/
 *.tsbuildinfo
-packages/backend/prisma/*.db
-packages/backend/prisma/*.db-journal
+**/*.db
+**/*.db-journal
+
+# Compiled output must never land in shared/src (build outputs to dist/)
+packages/shared/src/**/*.js
+packages/shared/src/**/*.js.map
+packages/shared/src/**/*.d.ts
+packages/shared/src/**/*.d.ts.map

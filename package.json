@@ -11,14 +11,5 @@
   "devDependencies": {
     "concurrently": "^9.1.0",
     "wait-on": "^9.0.10"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@nestjs/core",
-      "@prisma/client",
-      "@prisma/engines",
-      "esbuild",
-      "prisma"
-    ]
   }
 }

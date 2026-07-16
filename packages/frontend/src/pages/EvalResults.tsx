@@ -48,11 +48,6 @@ function passRate(run: EvalRun): number {
   return Math.round((run.passedCases / run.totalCases) * 100);
 }
 
-function versionLabel(run: EvalRun): string {
-  if (run.evalSuiteVersionNumber != null) return `v${run.evalSuiteVersionNumber}`;
-  return 'v?';
-}
-
 function runLabel(run: EvalRun): string {
   return run.runNumber > 0 ? `Run #${run.runNumber}` : 'Legacy run';
 }

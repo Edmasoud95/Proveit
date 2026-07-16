@@ -1,11 +1,10 @@
 import { createHash, randomUUID } from 'crypto';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { MessageEvent } from '@nestjs/common';
 import { ReplaySubject, Observable } from 'rxjs';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScaffoldService } from '../scaffold/scaffold.service';
-import { CreatePocDto } from './dto/create-poc.dto';
 import { UpdatePocDto } from './dto/update-poc.dto';
 import type { ScaffoldStep, ScaffoldStreamEvent } from '@proveit/shared';
 
@@ -111,16 +110,6 @@ export class PocService {
         this.completedJobs.delete(jobId);
       }, TTL);
     }
-  }
-
-  async create(dto: CreatePocDto) {
-    // Use a fallback LLM config (user must connect their own for scaffolding)
-    // Look for any existing LLM connection to use for scaffolding
-    // For now, require user to have a global default or pass endpoint in request
-    // Simplified: scaffold with a placeholder if no LLM connected yet
-    throw new BadRequestException(
-      'Connect an LLM endpoint before creating a POC. Use POST /api/pocs/scaffold with endpoint details.',
-    );
   }
 
   async findAll() {

@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { PocConfigVersionSummary, PocConfigVersion, ToolDefinition } from '@proveit/shared';
 import { api } from '../../services/api';
 import { Card } from '../ui/Card';
-import { Button } from '../ui/Button';
 import { useToast } from '../ui/Toast';
 import { lineDiff, toolsDiff } from './configVersionDiff';
 
