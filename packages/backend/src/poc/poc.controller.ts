@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { PocService } from './poc.service';
+import { PlanExportService } from './plan-export.service';
 import { UpdatePocDto } from './dto/update-poc.dto';
 import { ScaffoldPocDto } from './dto/scaffold-poc.dto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,6 +24,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export class PocController {
   constructor(
     private readonly pocService: PocService,
+    private readonly planExport: PlanExportService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -106,5 +108,13 @@ export class PocController {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'application/json');
     res.send(JSON.stringify(data, null, 2));
+  }
+
+  @Get(':id/export/plan')
+  async exportPlan(@Param('id') id: string, @Res() res: Response) {
+    const markdown = await this.planExport.exportPlan(id);
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="plan.md"');
+    res.send(markdown);
   }
 }

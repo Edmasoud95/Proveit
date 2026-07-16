@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { PocController } from './poc.controller';
 import { PocService } from './poc.service';
+import { PlanExportService } from './plan-export.service';
 import { ScaffoldModule } from '../scaffold/scaffold.module';
 
 @Module({
   imports: [ScaffoldModule],
   controllers: [PocController],
-  providers: [PocService],
+  providers: [PocService, PlanExportService],
   exports: [PocService],
 })
 export class PocModule {}
