@@ -4,6 +4,7 @@ import { MessageEvent } from '@nestjs/common';
 import { ReplaySubject, Observable } from 'rxjs';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
+import { SseRegistry } from '../common/sse-registry';
 import { assertValidEndpointUrl } from '../llm/url-validation';
 import { ScaffoldService } from '../scaffold/scaffold.service';
 import { UpdatePocDto } from './dto/update-poc.dto';
@@ -11,7 +12,9 @@ import type { ScaffoldStep, ScaffoldStreamEvent } from '@proveit/shared';
 
 @Injectable()
 export class PocService {
-  private jobs = new Map<string, ReplaySubject<MessageEvent>>();
+  // Unbounded replay: a scaffold job is short-lived and a late subscriber
+  // (page refresh) must see every step event from the start.
+  private jobs = new SseRegistry<MessageEvent>();
   private completedJobs = new Map<string, string>(); // jobId → pocId
 
   constructor(
@@ -22,16 +25,14 @@ export class PocService {
   startScaffoldJob(params: { description: string; endpointUrl: string; apiKey?: string; model?: string }): string {
     assertValidEndpointUrl(params.endpointUrl);
     const jobId = randomUUID();
-    const subject = new ReplaySubject<MessageEvent>();
-    this.jobs.set(jobId, subject);
+    this.jobs.get(jobId);
     void this.runScaffoldJob(jobId, params);
     return jobId;
   }
 
   getJobStream(jobId: string): Observable<MessageEvent> {
-    const subject = this.jobs.get(jobId);
-    if (!subject) throw new NotFoundException('Scaffold job not found');
-    return subject.asObservable();
+    if (!this.jobs.has(jobId)) throw new NotFoundException('Scaffold job not found');
+    return this.jobs.get(jobId).asObservable();
   }
 
   getCompletedPocId(jobId: string): string | null {
@@ -58,7 +59,7 @@ export class PocService {
     jobId: string,
     params: { description: string; endpointUrl: string; apiKey?: string; model?: string },
   ): Promise<void> {
-    const subject = this.jobs.get(jobId)!;
+    const subject = this.jobs.get(jobId);
     const { description, endpointUrl, apiKey, model } = params;
     const targetModel = model ?? 'gpt-4o';
     const client = new OpenAI({ baseURL: endpointUrl, apiKey: apiKey ?? 'not-required' });
