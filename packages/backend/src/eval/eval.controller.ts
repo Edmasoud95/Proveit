@@ -12,18 +12,12 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { Observable, defer } from 'rxjs';
+import { map, switchMap } from 'rxjs/operators';
 import { EvalService } from './eval.service';
-
-class AddCasesDto {
-  cases!: Array<{ name: string; input: unknown; judgeCriteria: string }>;
-}
-
-class GenerateCasesDto {
-  count?: number = 5;
-  toolFocused?: boolean = false;
-}
+import { AddCasesDto } from './dto/add-cases.dto';
+import { UpdateCaseDto } from './dto/update-case.dto';
+import { GenerateCasesDto } from './dto/generate-cases.dto';
 
 @Controller('pocs/:pocId/evals')
 export class EvalController {
@@ -38,7 +32,7 @@ export class EvalController {
   updateCase(
     @Param('pocId') pocId: string,
     @Param('caseId') caseId: string,
-    @Body() dto: Partial<{ name: string; input: unknown; judgeCriteria: string; order: number }>,
+    @Body() dto: UpdateCaseDto,
   ) {
     return this.evalService.updateCase(pocId, caseId, dto);
   }
@@ -62,11 +56,12 @@ export class EvalController {
 
   @Sse('run/:runId/stream')
   streamRun(
-    @Param('pocId') _pocId: string,
+    @Param('pocId') pocId: string,
     @Param('runId') runId: string,
   ): Observable<MessageEvent> {
-    const subject = this.evalService.subscribeToRun(runId);
-    return subject.pipe(
+    // Verify the run belongs to this POC before exposing its stream.
+    return defer(() => this.evalService.assertRunInPoc(pocId, runId)).pipe(
+      switchMap(() => this.evalService.subscribeToRun(runId)),
       map((event) => ({
         type: event.type,
         data: JSON.stringify(event.data),

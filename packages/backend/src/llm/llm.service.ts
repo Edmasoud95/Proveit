@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProviderDto } from './dto/create-provider.dto';
 import { UpdateProviderDto } from './dto/update-provider.dto';
+import { assertValidEndpointUrl } from './url-validation';
 import type { LlmProvider, LlmRoutingConfig, TaskModelOverride, TaskType } from '@proveit/shared';
 
 const VALID_TASK_TYPES: TaskType[] = ['agent', 'judge', 'eval-gen', 'stub-gen'];
@@ -12,6 +13,7 @@ export class LlmService {
   constructor(private prisma: PrismaService) {}
 
   getClient(endpointUrl: string, apiKey?: string): OpenAI {
+    assertValidEndpointUrl(endpointUrl);
     return new OpenAI({
       baseURL: endpointUrl,
       apiKey: apiKey ?? 'not-required',

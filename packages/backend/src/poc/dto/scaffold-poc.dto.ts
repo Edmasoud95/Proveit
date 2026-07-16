@@ -1,19 +1,23 @@
 import { IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
 
-export class CreateProviderDto {
+export class ScaffoldPocDto {
   @IsString()
   @IsNotEmpty()
-  name!: string;
+  description!: string;
 
-  // require_tld: false so http://localhost:1234 (LM Studio) is accepted
   @IsUrl({ require_tld: false, protocols: ['http', 'https'], require_protocol: true })
-  endpointUrl!: string;
+  @IsOptional()
+  endpointUrl?: string;
 
   @IsString()
   @IsOptional()
   apiKey?: string;
 
   @IsString()
-  @IsNotEmpty()
-  model!: string;
+  @IsOptional()
+  model?: string;
+
+  @IsString()
+  @IsOptional()
+  globalProviderId?: string;
 }

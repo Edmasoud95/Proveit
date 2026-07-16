@@ -4,6 +4,7 @@ import { MessageEvent } from '@nestjs/common';
 import { ReplaySubject, Observable } from 'rxjs';
 import OpenAI from 'openai';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertValidEndpointUrl } from '../llm/url-validation';
 import { ScaffoldService } from '../scaffold/scaffold.service';
 import { UpdatePocDto } from './dto/update-poc.dto';
 import type { ScaffoldStep, ScaffoldStreamEvent } from '@proveit/shared';
@@ -19,6 +20,7 @@ export class PocService {
   ) {}
 
   startScaffoldJob(params: { description: string; endpointUrl: string; apiKey?: string; model?: string }): string {
+    assertValidEndpointUrl(params.endpointUrl);
     const jobId = randomUUID();
     const subject = new ReplaySubject<MessageEvent>();
     this.jobs.set(jobId, subject);

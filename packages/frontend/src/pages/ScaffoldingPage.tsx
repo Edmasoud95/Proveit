@@ -110,7 +110,13 @@ export function ScaffoldingPage() {
 
   useEffect(() => {
     if (!jobId) return;
-    if (locationState) sessionStorage.setItem(`scaffold_${jobId}`, JSON.stringify(locationState));
+    if (locationState) {
+      // Never persist the API key — sessionStorage survives refreshes and is
+      // readable by anything running on this origin. Retry after a refresh
+      // proceeds without the key (fine for local endpoints).
+      const { apiKey: _apiKey, ...persistable } = locationState;
+      sessionStorage.setItem(`scaffold_${jobId}`, JSON.stringify(persistable));
+    }
     openStream(jobId);
     return () => esRef.current?.close();
   }, [jobId]); // eslint-disable-line react-hooks/exhaustive-deps

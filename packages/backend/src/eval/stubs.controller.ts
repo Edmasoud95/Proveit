@@ -1,10 +1,6 @@
 import { Controller, Post, Body, Param } from '@nestjs/common';
 import { EvalService } from './eval.service';
-
-class GenerateStubsDto {
-  overwrite?: boolean = false;
-  toolNames?: string[];
-}
+import { GenerateStubsDto } from './dto/generate-stubs.dto';
 
 @Controller('pocs/:pocId/tools')
 export class StubsController {

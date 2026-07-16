@@ -16,15 +16,8 @@ import {
 import { Response } from 'express';
 import { PocService } from './poc.service';
 import { UpdatePocDto } from './dto/update-poc.dto';
+import { ScaffoldPocDto } from './dto/scaffold-poc.dto';
 import { PrismaService } from '../prisma/prisma.service';
-
-class ScaffoldPocDto {
-  description!: string;
-  endpointUrl?: string;
-  apiKey?: string;
-  model?: string;
-  globalProviderId?: string;
-}
 
 @Controller('pocs')
 export class PocController {

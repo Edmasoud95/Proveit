@@ -197,6 +197,14 @@ export class EvalService implements OnModuleInit {
     return { runId: run.id, totalCases: cases.length, status: 'pending' };
   }
 
+  async assertRunInPoc(pocId: string, runId: string): Promise<void> {
+    const run = await this.prisma.evalRun.findFirst({
+      where: { id: runId, pocConfigId: pocId },
+      select: { id: true },
+    });
+    if (!run) throw new NotFoundException('Run not found for this POC');
+  }
+
   subscribeToRun(runId: string): ReplaySubject<EvalSseEvent> {
     if (!this.runSubjects.has(runId)) {
       this.runSubjects.set(runId, new ReplaySubject<EvalSseEvent>(200));

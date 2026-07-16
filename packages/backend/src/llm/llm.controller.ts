@@ -3,19 +3,15 @@ import { LlmService } from './llm.service';
 import { CreateProviderDto } from './dto/create-provider.dto';
 import { UpdateProviderDto } from './dto/update-provider.dto';
 import { SetRoutingDto } from './dto/set-routing.dto';
-
-class UpsertLlmDto {
-  endpointUrl!: string;
-  model!: string;
-  apiKey?: string;
-}
+import { UpsertLlmDto } from './dto/upsert-llm.dto';
+import { FetchModelsDto, FetchModelsForPocDto } from './dto/fetch-models.dto';
 
 @Controller('llm')
 export class LlmRootController {
   constructor(private readonly llmService: LlmService) {}
 
   @Post('models')
-  fetchModels(@Body() dto: { endpointUrl?: string; apiKey?: string; globalProviderId?: string }) {
+  fetchModels(@Body() dto: FetchModelsDto) {
     return this.llmService.fetchModels(dto.endpointUrl, dto.apiKey, dto.globalProviderId);
   }
 }
@@ -97,7 +93,7 @@ export class LlmController {
   }
 
   @Post('models')
-  fetchModelsForPoc(@Body() dto: { endpointUrl: string; apiKey?: string }) {
+  fetchModelsForPoc(@Body() dto: FetchModelsForPocDto) {
     return this.llmService.fetchModelsFromUrl(dto.endpointUrl, dto.apiKey);
   }
 

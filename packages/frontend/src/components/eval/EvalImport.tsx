@@ -35,7 +35,9 @@ export function EvalImport({ onImport }: EvalImportProps) {
       }
 
       setLoading(true);
-      await onImport(cases);
+      // Keep only the fields the API accepts, so re-importing an exported POC
+      // (whose cases carry ids/timestamps) works with strict body validation.
+      await onImport(cases.map((c) => ({ name: c.name, input: c.input, judgeCriteria: c.judgeCriteria })));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Invalid JSON file');
     } finally {
