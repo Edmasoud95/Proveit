@@ -172,7 +172,7 @@ export function Chat() {
 
       {id && (
         <div className="shrink-0">
-          <RunConfig pocId={id} />
+          <RunConfig pocId={id} tasks={['agent']} title="Chat model" />
         </div>
       )}
 

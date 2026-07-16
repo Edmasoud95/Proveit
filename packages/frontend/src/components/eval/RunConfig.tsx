@@ -5,16 +5,20 @@ import type { TaskType } from '@proveit/shared';
 import { api } from '../../services/api';
 import { resolveEffectiveProvider, useRouting } from '../../hooks/useRouting';
 
-const EVAL_TASK_TYPES: { type: TaskType; label: string }[] = [
+const ALL_TASK_TYPES: { type: TaskType; label: string }[] = [
   { type: 'agent', label: 'Agent' },
   { type: 'judge', label: 'Judge' },
 ];
 
 interface RunConfigProps {
   pocId: string;
+  /** Task types this surface actually uses (default: agent + judge, for eval runs). */
+  tasks?: TaskType[];
+  title?: string;
 }
 
-export function RunConfig({ pocId }: RunConfigProps) {
+export function RunConfig({ pocId, tasks = ['agent', 'judge'], title = 'Models for this run' }: RunConfigProps) {
+  const taskTypes = ALL_TASK_TYPES.filter((t) => tasks.includes(t.type));
   const [expanded, setExpanded] = useState(false);
   const queryClient = useQueryClient();
 
@@ -43,10 +47,10 @@ export function RunConfig({ pocId }: RunConfigProps) {
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-surface-overlay transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-sm font-medium text-gray-300">Models for this run</span>
+        <span className="text-sm font-medium text-gray-300">{title}</span>
         <div className="flex items-center gap-4">
           {!expanded &&
-            EVAL_TASK_TYPES.map(({ type, label }) => {
+            taskTypes.map(({ type, label }) => {
               const eff = resolveEffectiveProvider(routing, type);
               return eff ? (
                 <span key={type} className="text-xs text-muted hidden sm:block">
@@ -62,7 +66,7 @@ export function RunConfig({ pocId }: RunConfigProps) {
 
       {expanded && (
         <div className="px-4 pb-4 border-t border-border pt-3 flex flex-col gap-2">
-          {EVAL_TASK_TYPES.map(({ type, label }) => {
+          {taskTypes.map(({ type, label }) => {
             const override = routing?.overrides.find((o) => o.taskType === type);
             const selectedProvider = providers.find((p) => p.id === override?.connectionId);
             const effective = resolveEffectiveProvider(routing, type);
