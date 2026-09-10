@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@11.5.3",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "dev": "concurrently --kill-others-on-fail -n backend,frontend -c blue,green \"pnpm --filter backend dev\" \"wait-on http://localhost:3000/api/pocs && pnpm --filter frontend dev --host\"",

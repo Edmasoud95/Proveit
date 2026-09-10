@@ -6,7 +6,7 @@ Proveit is a local-first sandbox for scaffolding, editing, and evaluating agent 
 
 [![CI](https://github.com/Edmasoud95/Proveit/actions/workflows/ci.yml/badge.svg)](https://github.com/Edmasoud95/Proveit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Node 20+](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](.nvmrc)
+[![Node 22+](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](.nvmrc)
 
 ![Proveit home: describe a workflow, pick a provider, scaffold a POC](docs/screenshots/home.png)
 
@@ -88,7 +88,7 @@ Connect providers globally or per POC. Advanced routing lets you send the agent,
 
 ### Prerequisites
 
-- Node.js 20 or newer (see `.nvmrc`)
+- Node.js 22.13 or newer (see `.nvmrc`)
 - pnpm 11 (`corepack enable` picks up the pinned version)
 - An OpenAI-compatible LLM endpoint. [LM Studio](https://lmstudio.ai) at `http://localhost:1234/v1` is the default. Any hosted OpenAI-compatible API also works.
 

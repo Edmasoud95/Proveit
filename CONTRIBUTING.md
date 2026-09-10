@@ -5,7 +5,7 @@ conventions the codebase follows.
 
 ## Prerequisites
 
-- Node.js **20+** (see `.nvmrc`)
+- Node.js **22.13+** (see `.nvmrc`)
 - pnpm 11 (`corepack enable` will pick up the pinned version from
   `packageManager` in `package.json`)
 - An OpenAI-compatible LLM endpoint for actually exercising the app —
@@ -48,7 +48,7 @@ pnpm build
 pnpm test
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same three on Node 20.
+CI (`.github/workflows/ci.yml`) runs the same three on Node 22.
 
 ## Conventions
 
