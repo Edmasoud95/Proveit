@@ -31,3 +31,6 @@ specs/
 .specify/
 .claude/
 TODO.md
+
+# Editor-local settings
+.vscode/
